@@ -1,0 +1,6 @@
+__pycache__/
+state/*.json
+state/backup/
+logs/
+drafts/*/*.json
+.env

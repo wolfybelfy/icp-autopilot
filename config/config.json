@@ -1,0 +1,23 @@
+{
+  "mode": "review",
+  "safety": { "dry_run": true },
+  "addresses": {
+    "sender_mailbox": "upawar@unboundia.com",
+    "reviewer_notify": "upawar@unboundia.com",
+    "approver_addresses": ["upawar@unboundia.com"],
+    "audit_bcc": "upawar@unboundia.com",
+    "summary_to": "upawar@unboundia.com"
+  },
+  "caps": {
+    "sends_per_day": 10,
+    "domain_sends_per_week": 2,
+    "approval_requests_per_day": 20,
+    "zoominfo_enrich_per_day": 50,
+    "linkedin_loads_per_day": 15
+  },
+  "geo_allowlist": ["US"],
+  "approval_expiry_hours": 48,
+  "retry_max_attempts": 12,
+  "linkedin": { "enabled": true },
+  "sender": { "name": "REPLACE_ME", "title": "Unbound IA", "postal_address": "REPLACE_ME" }
+}
