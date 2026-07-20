@@ -83,20 +83,55 @@ instructs the session to:
    ZoomInfo tops+subs and Warmly industry+subIndustry; ICP = industry-ICP AND
    (employees ≥ 1000 OR funding Series A–F+)). Deterministic Python — never model judgment.
    Non-ICP → record in `seen.json` with reason, stop there.
-4. For ICP visitors with an identified person: enrich via **ZoomInfo MCP** (person title,
-   seniority, verified email, company firmographics). Enrichment failure → write a
-   `retry` marker, not a guess.
-5. Live web research: the pages they visited (from Warmly), company site, recent news.
-   **Every URL that will appear in the email must be fetched HTTP 200 in this run. No URL
+4. For ICP visitors with an identified person: run the **enrichment playbook** (§3.1a).
+   Any stage's failure → that stage's data stays blank and is listed in
+   `enrichment_gaps`; a failure of the core stage (E1) → `retry` marker, never a guess.
+5. **Every URL that will appear in the email must be fetched HTTP 200 in this run. No URL
    is ever written from memory** (parent evidence-discipline rule, inherited verbatim).
 6. Draft the email as body paragraphs + subject. Every factual claim carries a source.
-   Select the video URL by visited-page rules from `config/page_video_map.json`.
 7. Write one JSON file per prospect to `drafts\inbox\<visitor_id>.json` (schema in §5).
 8. Append a machine-readable run report to `logs/claude-runs.jsonl` (visitors seen, ICP
    count, drafts written, enrich failures) — the daily summary is built from this.
 
 Allowed tools for the headless session: Warmly MCP, ZoomInfo MCP, WebFetch/WebSearch,
-Read/Write (project dir only), Bash restricted to `python pipeline\icp_check.py`.
+Playwright MCP (LinkedIn stage only, §3.1a E5), Read/Write (project dir only), Bash
+restricted to `python pipeline\icp_check.py`.
+
+### 3.1a Enrichment playbook (per ICP prospect, stages E1–E6 in order)
+
+Grounded in the ZoomInfo MCP tool schemas inspected 2026-07-20 — not memory. Note the
+schemas state the standalone `enrich_intent` / `enrich_news` / `enrich_scoops` tools are
+**deprecated as of 2026-07-03**; only the unified `enrich_company_signals` is used.
+Credit facts from the same schemas: a contact/company enriched once **re-enriches free
+for 12 months**, and `enrich_company_signals` doesn't re-charge for companies enriched
+within the prior 12 months — so the enrich cache (§6) mirrors that window.
+
+| Stage | Source | What it yields | Failure behavior |
+|---|---|---|---|
+| **E0 — Visit context** | Warmly (already in hand) | Pages visited, session time, UTM source, Warmly firmographics + identified person | Prerequisite; no person identified → `no_person`, stop |
+| **E1 — Person deep enrich** (core) | ZoomInfo `enrich_contacts` with `requiredFields`: email, jobTitle, jobFunction, managementLevel, positionStartDate, employmentHistory, education, yearsOfExperience, externalUrls (LinkedIn URL), contactAccuracyScore | Verified business email (gate input), seniority (gate input), **"new in role" hook** (positionStartDate), career path, their LinkedIn URL for E5 | Fail → `retry` (this stage is required — no verified email means no send, ever) |
+| **E2 — Company deep enrich** | ZoomInfo `enrich_companies`: industries (all), employeeCount + employeeCountByDepartment, revenue, companyFunding/recentFundingDate, foundedYear, businessModel, description | ICP raw classifications (gate #4 input), funding hooks, department sizes | Fail → `retry` |
+| **E3 — Signals** | ZoomInfo `enrich_company_signals` (INTENT + NEWS + SCOOP, one call) | **Intent**: topics the company is actively researching (buying interest). **News**: funding, M&A, product launches, exec moves. **Scoops incl. the hiring pattern**: `Hiring Plans`, `Open Position`, `New Hire`, `Layoffs`, `Executive Move`, `Facilities Expansion`, `Pain Point`, `Project` | Fail → blank + gap noted; draft proceeds |
+| **E4 — Google research** | WebSearch + WebFetch | 2–4 targeted searches: `"<person>" "<company>"` (talks, articles, podcasts, quotes); `"<company>" news <current year>`; `"<company>" careers/jobs` (public hiring pages). Each used fact requires a fetched-200 source URL | Fail → blank + gap noted |
+| **E5 — LinkedIn / Sales Navigator** | Playwright MCP driving the spare PC's logged-in browser profile (Sales Nav session kept signed in by the operator) | Prospect's recent posts/activity (the single best personalization hook); company page recent posts; company jobs page opening count as a hiring cross-check | Fail → blank + gap noted; **never blocks the email** |
+| **E6 — Synthesis** | The claude session | Ranked personalization hooks with sources; hypothesis of *why they visited* tying pages visited (E0) to intent topics (E3) and hiring/news (E3–E5) | — |
+
+**E5 risk statement (honest, not buried):** automating a logged-in LinkedIn/Sales Nav
+session violates LinkedIn's ToS and detected automation can restrict or ban the account.
+Controls, all enforced in the prompt AND capped deterministically in state
+(`caps.json: linkedin_views`): only runs for prospects that already passed ICP + E1
+(a handful/day, not a crawler); max **3 page loads per prospect** (profile, company page,
+company jobs) and max **15 LinkedIn page loads/day**; read-only — never connect, message,
+or react; 8–15 s randomized delays; stage skipped entirely if the session is logged out
+(flagged in the daily summary, never re-authed automatically). Since E3 already provides
+hiring signals ban-risk-free, E5 is **supplementary color, not a dependency** — config
+`linkedin.enabled: true|false` turns it off cleanly, and the operator should treat a
+LinkedIn warning email as reason to disable it.
+
+**Tool-name caveat:** the schemas above were inspected via the claude.ai ZoomInfo
+connector in this session. The spare PC uses `mcp.zoominfo.com` added via `claude mcp add`
+— tool names/shapes are expected to match but MUST be verified once during setup (§9) and
+the prompt file adjusted if they differ. Never assume parity; check it.
 
 ### 3.2 The hands — `pipeline/` Python (Phases 1 & 3)
 
@@ -133,7 +168,8 @@ All must pass, else the draft is rejected/queued — never "relaxed to make it s
 6. **Absolute dedup**: normalized recipient email not in `send_log.json` and not reserved
    by any pending approval. One person is never emailed twice, ever.
 7. Caps: ≤ 10 prospect sends/day; ≤ 2 sends/domain/rolling-7-days; ≤ 20 approval
-   requests/day (protects the director's inbox).
+   requests/day (protects the director's inbox); ≤ 50 ZoomInfo enrichments/day and
+   ≤ 15 LinkedIn page loads/day (enforced in `caps.json`, checked before each stage).
 8. Geo: company country US-only (config `geo_allowlist`; initial default `["US"]`).
 9. **Every link in the email re-verified HTTP 200 at send time** (not just at draft time —
    hours may have passed during approval).
@@ -149,9 +185,10 @@ For each gated-and-valid draft, `approvals.py`:
   historical tokens).
 - Sends ONE email from the sender mailbox to `reviewer_notify` (director):
   - **Subject:** `Approval [#A7F3B2] — <Full Name> (<Title>, <Company>)`
-  - **Body:** the prospect email exactly as it will be sent (subject + rendered body +
-    video link), then the evidence block (pages visited, ZoomInfo match level, each claim
-    with its source URL), then: *"Reply GOOD to send. Reply NO to reject. Anything else
+  - **Body:** the prospect email exactly as it will be sent (subject + rendered body),
+    then the evidence block (pages visited, ZoomInfo match level, intent/news/hiring
+    signals used, LinkedIn activity referenced, each claim with its source URL, and any
+    named enrichment gaps), then: *"Reply GOOD to send. Reply NO to reject. Anything else
     keeps it on hold. Expires in 48h."*
 - Records `{token, draft, status: "pending", requested_at}` in `state/approvals.json`.
   The recipient email is **reserved** in dedup from this moment.
@@ -206,13 +243,20 @@ satisfied with review-mode output.
   "visit":   { "pages": [...], "last_seen": "" },
   "email":   { "subject": "", "body_paragraphs": ["", ""] },   // paragraphs ONLY —
                                                                // template owns greeting/sign-off/footer
-  "video_url": "",
   "sources": [ { "claim": "", "url": "" } ],   // every URL verified 200 in the drafting run
+  "enrichment": {                              // playbook outputs (§3.1a), blanks allowed
+    "person":   { "position_start_date": "", "employment_history": [...], "linkedin_url": "" },
+    "signals":  { "intent_topics": [...], "news": [...], "scoops": [...] },   // E3
+    "hiring":   { "scoop_hiring": [...], "jobs_page_count": null },           // E3 + E5
+    "linkedin": { "recent_activity": [...], "company_posts": [...] },         // E5, may be empty
+    "google":   [ { "fact": "", "url": "" } ],                                // E4
+    "gaps":     [ "linkedin_logged_out", ... ]  // stages that yielded nothing, named
+  },
   "enrich":  { "provider": "zoominfo_mcp", "match_level": "FULL_MATCH" }
 }
 ```
 
-`config/email_template.html` owns the greeting (`Hi {first_name},`), video paragraph,
+`config/email_template.html` owns the greeting (`Hi {first_name},`),
 sign-off/signature, and compliance footer (postal address + unsubscribe line). `send.py`
 sanitizes body paragraphs — strips any greeting/sign-off/placeholder the model added
 anyway (v1's locked template contract, kept, with its regression tests ported).
@@ -227,7 +271,8 @@ anyway (v1's locked template contract, kept, with its regression tests ported).
 | `seen.json` | Every visitor ever evaluated: `{visitor_id: {status, reason, at}}` — statuses: `non_icp`, `no_person`, `drafted`, `retry` (with attempt count), `parked` |
 | `approvals.json` | Full approval lifecycle records |
 | `send_log.json` | Absolute dedup: normalized email → `{sent_at, message_id, status: reserved/confirmed/unconfirmed}` |
-| `caps.json` | Daily/rolling counters (self-pruning) |
+| `caps.json` | Daily/rolling counters incl. ZoomInfo enrich + LinkedIn loads (self-pruning) |
+| `enrich_cache.json` | Person/company/signals enrichment keyed by email/companyId, TTL 12 months (mirrors ZoomInfo's free re-enrich window). A person-level miss is cached as a miss with a 7-day TTL only — never masks a later real match (fixes v1's known `COMPANY_ONLY_MATCH` masking bug) |
 | `heartbeat.json` | Last successful tick per phase — staleness drives alerts |
 | `inbox_scan.json` | Inbox scan watermark |
 
@@ -255,6 +300,9 @@ the summary — never silently dropped, never guessed.
 | AV/Outlook programmatic-access prompt | If COM sends trigger a security prompt, setup doc covers the fix (up-to-date AV detection or the ObjectModelGuard policy). Detected in smoke test, not in production. |
 | Subscription usage (288 runs/day) | Early-exit prompt keeps no-visitor runs to one Warmly call. Config `active_hours` (e.g. business hours ± buffer) can restrict the schedule if usage bites. |
 | Warmly identification credits | Poll `get_credits_remaining` once/day in the claude run; summary warns < 100 (v1 rule, kept). |
+| LinkedIn session logged out | E5 self-disables (skipped, gap named in draft + summary). Never re-authed automatically; operator re-signs in when convenient. |
+| LinkedIn automation detected / warning received | Operator sets `linkedin.enabled: false` (config, no restart). Pipeline unaffected — hiring signals still flow from ZoomInfo scoops (E3). |
+| ZoomInfo credit burn | Enrich gated behind ICP; 50/day cap; `enrich_cache.json` honors ZoomInfo's 12-month free re-enrich window so repeat visitors cost nothing. |
 
 ---
 
@@ -265,9 +313,9 @@ ICP-Autopilot\
 ├── SETUP.md                    # ~8 steps, spare-PC deployment
 ├── STOP                        # (absent normally) kill switch — presence halts sending
 ├── config\
-│   ├── config.json             # mode, caps, geo, addresses, active_hours, dry_run
+│   ├── config.json             # mode, caps, geo, addresses, active_hours, dry_run,
+│   │                           # linkedin.enabled, enrich caps
 │   ├── email_template.html/.txt
-│   ├── page_video_map.json     # 5 video URLs — operator-supplied, REQUIRED before go-live
 │   └── suppression.txt
 ├── prompts\run-prompt.md       # the pinned claude -p prompt
 ├── pipeline\                   # tick.py, send.py, gates.py, approvals.py, outlook.py,
@@ -291,12 +339,15 @@ ICP-Autopilot\
 3. Install Claude Code CLI; sign in (subscription login, no API key anywhere).
 4. `claude mcp add` Warmly and ZoomInfo (HTTP transport; one-time `/mcp` browser auth
    each). Exact URLs come from the live account/v1 scripts at setup time — **never written
-   from memory into config**.
-5. Copy the `ICP-Autopilot` folder; run `scripts\setup.ps1` — must end all-green.
-6. Fill required config: director's address, `page_video_map.json` video URLs, postal
-   address for the footer.
-7. `python pipeline\smoke_test.py` — dry pipeline pass, then one real send-to-self.
-8. Import `task-schedule.xml`; watch two ticks in `logs\`; leave `dry_run: true` until a
+   from memory into config**. Then verify the ZoomInfo tool names against §3.1a (run one
+   throwaway `claude -p` that lists tools) and adjust `prompts\run-prompt.md` if they differ.
+5. Install the Playwright MCP for the CLI; open the browser profile it uses and sign in
+   **LinkedIn Sales Navigator** (operator keeps this session alive; when it logs out, the
+   E5 stage self-disables and the daily summary says so).
+6. Copy the `ICP-Autopilot` folder; run `scripts\setup.ps1` — must end all-green.
+7. Fill required config: director's address, postal address for the footer.
+8. `python pipeline\smoke_test.py` — dry pipeline pass, then one real send-to-self.
+9. Import `task-schedule.xml`; watch two ticks in `logs\`; leave `dry_run: true` until a
    full review-mode approval round-trip has been exercised with a test prospect (self).
 
 Go-live order: smoke pass → `dry_run: false`, `mode: "review"` → operator satisfaction →
@@ -318,6 +369,10 @@ Go-live order: smoke pass → `dry_run: false`, `mode: "review"` → operator sa
 
 - No draft editing via reply (approve-as-is or NO). Drafts-folder edit mode = future add-on.
 - No web UI, no tunnel, no cloud host, no Resend/Graph — by design.
+- No video attachment/link in emails (removed by operator decision 2026-07-20; v1's
+  `page_video_map` concept dropped entirely).
+- LinkedIn stage is best-effort color only — the pipeline must produce a complete,
+  sendable email with `linkedin.enabled: false`.
 - No CRM writeback in v2.
 - Old `Fully-Automated System\` folder: untouched until operator confirms deletion
   post-smoke-test. Its `icp_core.py` provenance and template-contract tests are ported by
