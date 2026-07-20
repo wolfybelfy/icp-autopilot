@@ -1,6 +1,7 @@
 """Deterministic pre/post phases around the claude run. CLI entry for run.ps1."""
 import argparse, json, sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # allow `python pipeline\tick.py`
 from pipeline import state
 from pipeline.approvals import find_token, parse_verdict
 from pipeline.send import Sender
