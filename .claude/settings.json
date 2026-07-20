@@ -8,21 +8,20 @@
       "Read",
       "Glob",
       "Grep",
-      "Write(drafts/**)",
-      "Write(state/**)",
-      "Write(logs/**)",
       "Edit(drafts/**)",
       "Edit(state/**)",
+      "Edit(logs/**)",
       "Bash(python pipeline/icp_check.py*)",
       "Bash(py -3 pipeline/icp_check.py*)"
     ],
     "deny": [
-      "Write(config/**)",
       "Edit(config/**)",
-      "Write(state/send_log.json)",
       "Edit(state/send_log.json)",
-      "Write(state/approvals.json)",
-      "Edit(state/approvals.json)"
+      "Edit(state/approvals.json)",
+      "Edit(pipeline/**)",
+      "Edit(prompts/**)",
+      "Edit(scripts/**)",
+      "Edit(.claude/**)"
     ]
   }
 }
