@@ -42,11 +42,18 @@ class Outlook:
         restricted = items.Restrict(f"[ReceivedTime] >= '{ts}'")
         out = []
         for msg in restricted:
+            # Inboxes also contain meeting invites, read receipts, NDRs etc. Anything that
+            # can't yield the four fields below is not an approval reply - skip, never crash.
             try:
-                sender = msg.PropertyAccessor.GetProperty(PR_SMTP)
+                if getattr(msg, "Class", 43) != 43:      # 43 = olMail
+                    continue
+                try:
+                    sender = msg.PropertyAccessor.GetProperty(PR_SMTP)
+                except Exception:
+                    sender = getattr(msg, "SenderEmailAddress", "") or ""
+                out.append({"subject": msg.Subject or "", "sender": (sender or "").lower(),
+                            "body": msg.Body or "",
+                            "received": msg.ReceivedTime.strftime("%Y-%m-%dT%H:%M:%S")})
             except Exception:
-                sender = getattr(msg, "SenderEmailAddress", "") or ""
-            out.append({"subject": msg.Subject or "", "sender": (sender or "").lower(),
-                        "body": msg.Body or "",
-                        "received": msg.ReceivedTime.strftime("%Y-%m-%dT%H:%M:%S")})
+                continue
         return out

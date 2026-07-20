@@ -41,31 +41,34 @@ def main():
     d["company"]["domain"] = me.split("@")[-1]
     p = ROOT / "drafts" / "inbox" / "smoke-1.json"
     p.write_text(json.dumps(d), encoding="utf-8")
-    if args.send:
-        from pipeline.outlook import Outlook, verify_url
-        cfg2 = json.loads(json.dumps(cfg))
-        cfg2["mode"] = "auto"
-        cfg2["safety"]["dry_run"] = False
-        s = Sender(ROOT, cfg2, Outlook(), verify_url)
-    else:
-        s = Sender(ROOT, cfg, EchoMailer(), verify_url=lambda u: True)
-    out = s.route_draft(p)
-    print("smoke result:", out)
-    # cleanup so the smoke never pollutes real state
-    log_p = ROOT / "state" / "send_log.json"
-    log = state.load_json(log_p, {})
-    if log.pop(me.lower(), None) is not None:
-        state.save_json(log_p, log)
-    appr_p = ROOT / "state" / "approvals.json"
-    appr = state.load_json(appr_p, {})
-    stale = [t for t, r in appr.items() if r.get("recipient") == me.lower()]
-    for t in stale:
-        del appr[t]
-    if stale:
-        state.save_json(appr_p, appr)
-    for sub in ("inbox", "sent", "rejected", "invalid"):
-        for f in (ROOT / "drafts" / sub).glob("smoke-1*.json"):
-            f.unlink()
+    try:
+        if args.send:
+            from pipeline.outlook import Outlook, verify_url
+            cfg2 = json.loads(json.dumps(cfg))
+            cfg2["mode"] = "auto"
+            cfg2["safety"]["dry_run"] = False
+            s = Sender(ROOT, cfg2, Outlook(), verify_url)
+        else:
+            s = Sender(ROOT, cfg, EchoMailer(), verify_url=lambda u: True)
+        out = s.route_draft(p)
+        print("smoke result:", out)
+    finally:
+        # cleanup ALWAYS runs - a crash mid-smoke (e.g. COM failure) must never leave the
+        # fixture draft behind for a real tick to pick up and request approval on.
+        log_p = ROOT / "state" / "send_log.json"
+        log = state.load_json(log_p, {})
+        if log.pop(me.lower(), None) is not None:
+            state.save_json(log_p, log)
+        appr_p = ROOT / "state" / "approvals.json"
+        appr = state.load_json(appr_p, {})
+        stale = [t for t, r in appr.items() if r.get("recipient") == me.lower()]
+        for t in stale:
+            del appr[t]
+        if stale:
+            state.save_json(appr_p, appr)
+        for sub in ("inbox", "sent", "rejected", "invalid"):
+            for f in (ROOT / "drafts" / sub).glob("smoke-1*.json"):
+                f.unlink()
     ok = (out == "sent") if args.send else out.startswith(("approval_requested", "dry_run", "gated"))
     return 0 if ok else 1
 
