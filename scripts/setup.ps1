@@ -14,6 +14,8 @@ Check "claude CLI"          ((claude --version 2>&1) -match "\d")
 $mcpList = claude mcp list 2>&1
 Check "warmly MCP connected"   ($mcpList -match "warmly.*Connected")
 Check "zoominfo MCP connected" ($mcpList -match "(?i)zoominfo.*Connected")
+# Untrusted workspaces don't load user MCPs headless. Fix: scripts\trust-workspace.ps1
+Check "workspace trusted (headless)" ((PyRun -c "import json,pathlib; d=json.load(open(pathlib.Path.home()/'.claude.json',encoding='utf-8')); key=str(pathlib.Path('.').resolve()).replace(chr(92),'/'); print(d.get('projects',{}).get(key,{}).get('hasTrustDialogAccepted',False))") -match "True")
 Check "NTP clock sync"      ((w32tm /query /status 2>&1) -match "Source:")
 Check "tests green"         ((PyRun -m pytest -q) -match "passed")
 Check "no REPLACE_ME in config" (-not ((Get-Content config\config.json -Raw) -match "REPLACE_ME"))

@@ -83,6 +83,11 @@ no runs). Delete it to resume. No restart needed.
    git clone https://github.com/wolfybelfy/icp-autopilot.git ICP-Autopilot
    cd ICP-Autopilot
    ```
+   Then trust the folder for headless runs (one-time — untrusted workspaces don't load
+   the warmly MCP in `claude -p`, so every scheduled tick stalls; verified 2026-07-20):
+   ```powershell
+   powershell -File scripts\trust-workspace.ps1   # prints "trusted: <path>"
+   ```
    Then run the verifier:
    ```powershell
    powershell -File scripts\setup.ps1     # must end "All green."

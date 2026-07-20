@@ -22,8 +22,12 @@ try {
     PyRun pipeline\tick.py --phase pre | Out-File $Log -Append -Encoding utf8
     Say "claude run"
     $claudeOut = "$Log.claude"
+    # Headless runs have no one to click permission prompts. Grant the run-prompt's tools
+    # explicitly on the CLI - honored regardless of workspace-trust state, unlike
+    # .claude/settings.json. Comma-separated, no spaces (Start-Process arg quoting).
+    $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python:*),Bash(py:*)"
     $p = Start-Process -FilePath "claude" -ArgumentList @("-p", "@prompts/run-prompt.md",
-         "--output-format", "text") -NoNewWindow -PassThru -RedirectStandardOutput $claudeOut
+         "--output-format", "text", "--allowedTools", $allowed) -NoNewWindow -PassThru -RedirectStandardOutput $claudeOut
     if (-not $p.WaitForExit(480000)) { $p.Kill(); Say "claude run TIMED OUT at 8min - killed" }
     Get-Content $claudeOut -ErrorAction SilentlyContinue | Out-File $Log -Append -Encoding utf8
     Remove-Item $claudeOut -Force -ErrorAction SilentlyContinue
