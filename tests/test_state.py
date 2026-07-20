@@ -18,7 +18,7 @@ def test_backup_once_per_day(tmp_path):
     assert json.loads((sd / "backup" / "2026-07-20" / "a.json").read_text()) == {"x": 1}
 
 def test_count_in_window():
-    ts = ["2026-07-14T10:00:00", "2026-07-19T10:00:00", "2026-07-20T09:00:00"]
+    ts = ["2026-07-12T10:00:00", "2026-07-19T10:00:00", "2026-07-20T09:00:00"]
     assert state.count_in_window(ts, days=7, now="2026-07-20T12:00:00") == 2
 
 def test_prune_daily():
