@@ -54,16 +54,23 @@ no runs). Delete it to resume. No restart needed.
 3. **Claude Code CLI**, signed in with the subscription login (no API key anywhere).
    Verify: `claude --version`.
 
-4. **Add the MCPs** (one-time browser auth each — get the URLs from the live account
-   pages / the v1 scripts, never from memory):
+4. **MCPs — ZoomInfo comes from the claude.ai connector, NOT a local add.**
+   The claude.ai ZoomInfo connector is tied to the Claude *account*, so it arrives on any
+   PC signed into that account already authenticated (verified 2026-07-20: 21 tools,
+   works headless in `claude -p`). ⚠️ **Never add a user-scoped `zoominfo` MCP or run its
+   browser OAuth on a new PC** — a failed OTP loop locked the ZoomInfo account once
+   already. If a stale user-scoped entry exists: `claude mcp remove zoominfo -s user`.
+
+   Warmly IS a local user-scoped MCP (open registration, safe to auth):
    ```powershell
-   claude mcp add --transport http --scope user warmly   <warmly-mcp-url>
-   claude mcp add --transport http --scope user zoominfo <zoominfo-mcp-url>
-   claude    # then /mcp to authenticate each in the browser
+   claude mcp add --transport http --scope user warmly <warmly-mcp-url-from-v1-scripts>
+   claude    # then /mcp to authenticate warmly in the browser (one attempt; stop on failure)
    ```
-   Then verify tool-name parity: run a throwaway `claude -p "list your zoominfo tools"` and
-   confirm `enrich_contacts`, `enrich_companies`, `enrich_company_signals` exist. If names
-   differ, adjust `prompts/run-prompt.md` §2 accordingly.
+   Verify both: `claude mcp list` must show `warmly … Connected` and
+   `claude.ai ZoomInfo … Connected`. Then tool-name parity: `claude -p "List the names of
+   every ZoomInfo tool available to you. Do not call any."` and confirm `enrich_contacts`,
+   `enrich_companies`, `enrich_company_signals` exist. If names differ, adjust
+   `prompts/run-prompt.md` §2 accordingly.
 
 5. **Playwright MCP + Sales Navigator** (optional — LinkedIn stage): install the
    Playwright MCP for the CLI, open its browser profile, sign in LinkedIn Sales Navigator.

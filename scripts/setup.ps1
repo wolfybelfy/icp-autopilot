@@ -9,8 +9,11 @@ Check "Python 3.11+"        ((PyRun --version) -match "3\.1[1-9]")
 Check "pywin32 importable"  ((PyRun -c "import win32com.client; print(1)") -match "1")
 Check "classic Outlook COM" ((PyRun -c "import win32com.client as w; w.Dispatch('Outlook.Application'); print(1)") -match "1")
 Check "claude CLI"          ((claude --version 2>&1) -match "\d")
-Check "warmly MCP added"    ((claude mcp list 2>&1) -match "warmly")
-Check "zoominfo MCP added"  ((claude mcp list 2>&1) -match "zoominfo")
+# One health-checked listing for both MCP checks. "Connected" is required, not just the
+# name — a server stuck at "Needs authentication" must show FAIL here.
+$mcpList = claude mcp list 2>&1
+Check "warmly MCP connected"   ($mcpList -match "warmly.*Connected")
+Check "zoominfo MCP connected" ($mcpList -match "(?i)zoominfo.*Connected")
 Check "NTP clock sync"      ((w32tm /query /status 2>&1) -match "Source:")
 Check "tests green"         ((PyRun -m pytest -q) -match "passed")
 Check "no REPLACE_ME in config" (-not ((Get-Content config\config.json -Raw) -match "REPLACE_ME"))
