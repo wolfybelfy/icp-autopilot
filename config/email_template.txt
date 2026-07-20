@@ -1,0 +1,15 @@
+Subject: {{subject}}
+
+Hi {{first_name}},
+
+{{body}}
+
+If it's useful, happy to walk through how this could apply to your team.
+
+Best,
+{{sender_name}}
+{{sender_title}}
+
+--
+{{postal_address}}
+You received this because you visited our website. Reply "unsubscribe" to opt out.
