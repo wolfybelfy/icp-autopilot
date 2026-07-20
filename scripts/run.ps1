@@ -6,6 +6,9 @@ $Lock = Join-Path $Root "state\tick.lock"
 $Log  = Join-Path $Root ("logs\tick-" + (Get-Date -Format "yyyy-MM-dd") + ".log")
 New-Item -ItemType Directory -Force (Join-Path $Root "logs") | Out-Null
 function Say($m) { ("{0} {1}" -f (Get-Date -Format "HH:mm:ss"), $m) | Out-File $Log -Append -Encoding utf8 }
+# Win10: 'python' may be the Microsoft Store stub; fall back to the 'py -3' launcher.
+function PyRun { if ($script:UsePyLauncher) { & py -3 @args 2>&1 } else { & python @args 2>&1 } }
+$script:UsePyLauncher = -not ((python --version 2>&1) -match "^Python 3")
 
 if (Test-Path (Join-Path $Root "STOP")) { Say "STOP file present - halt"; exit 0 }
 if (Test-Path $Lock) {
@@ -16,7 +19,7 @@ if (Test-Path $Lock) {
 New-Item -ItemType File -Force $Lock | Out-Null
 try {
     Say "phase pre"
-    python pipeline\tick.py --phase pre 2>&1 | Out-File $Log -Append -Encoding utf8
+    PyRun pipeline\tick.py --phase pre | Out-File $Log -Append -Encoding utf8
     Say "claude run"
     $claudeOut = "$Log.claude"
     $p = Start-Process -FilePath "claude" -ArgumentList @("-p", "@prompts/run-prompt.md",
@@ -25,6 +28,6 @@ try {
     Get-Content $claudeOut -ErrorAction SilentlyContinue | Out-File $Log -Append -Encoding utf8
     Remove-Item $claudeOut -Force -ErrorAction SilentlyContinue
     Say "phase post"
-    python pipeline\tick.py --phase post 2>&1 | Out-File $Log -Append -Encoding utf8
+    PyRun pipeline\tick.py --phase post | Out-File $Log -Append -Encoding utf8
 } finally { Remove-Item $Lock -Force -ErrorAction SilentlyContinue }
 Say "tick done"

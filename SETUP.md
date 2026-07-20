@@ -3,6 +3,36 @@
 Follow top to bottom. Each step ends with its verification. Do not improvise the order.
 Full design: `docs/specs/2026-07-20-icp-autopilot-design.md`.
 
+## Windows 10 notes (the spare PC)
+
+- **No `winget` needed anywhere below.** All installs are direct downloads or PowerShell
+  one-liners that work on Windows 10 PowerShell 5.1.
+- If `python` opens the Microsoft Store instead of Python: use `py -3` in place of
+  `python` everywhere (or disable the Store alias: Settings → Apps → App execution
+  aliases → turn off both `python` entries).
+- **No GitHub CLI (`gh`) needed.** Cloning the private repo with plain `git clone` pops
+  up a browser sign-in via Git Credential Manager (bundled with Git for Windows) —
+  sign in as `wolfybelfy` once and it's remembered.
+- If the Claude Code CLI is missing, install with (verified working):
+  ```powershell
+  irm https://claude.ai/install.ps1 | iex
+  ```
+
+## Already did v1's setup? (resume checklist)
+
+If this PC previously went through v1's `SPARE-PC-SETUP.md`, most prerequisites exist.
+Check what's present and skip those steps:
+
+```powershell
+python --version    # or: py -3 --version      → have Python? skip step 1's install
+git --version       #                          → have Git? nothing else needed to clone
+claude --version    #                          → have Claude CLI? skip step 3's install
+claude mcp list     #                          → zoominfo already added? skip that part of step 4
+```
+
+pywin32/pytest still need installing for THIS repo: `pip install -r requirements.txt`
+(v1 used different packages). The v1 folder/repo itself is unused here — do not mix them.
+
 ## The kill switch (know this first)
 
 Create a file named `STOP` in this folder → everything halts within one tick (no sends,
@@ -40,7 +70,13 @@ no runs). Delete it to resume. No restart needed.
    When this session logs out the LinkedIn stage self-disables and the daily summary says
    so. To turn the stage off entirely: `config/config.json → linkedin.enabled: false`.
 
-6. **Copy this folder** to the spare PC (or `git clone`), then run the verifier:
+6. **Clone the repo** (browser sign-in as wolfybelfy pops up on first clone), then verify:
+   ```powershell
+   cd $HOME\Documents
+   git clone https://github.com/wolfybelfy/icp-autopilot.git ICP-Autopilot
+   cd ICP-Autopilot
+   ```
+   Then run the verifier:
    ```powershell
    powershell -File scripts\setup.ps1     # must end "All green."
    ```
