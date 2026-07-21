@@ -2,73 +2,69 @@
 
 E5 reads a prospect's **recent LinkedIn posts** as a personalization hook. It is an
 optional add-on: if it is off or blocked, the pipeline still drafts and sends. The hiring
-signal you also asked for does **not** use this at all — it comes from Google
-(`site:linkedin.com/jobs "<Company>"`) in E4 and from ZoomInfo scoops in E3, both of which
-carry zero LinkedIn-account risk.
+signal you also wanted does **not** use this at all — it comes from Google
+(`site:linkedin.com/jobs "<Company>"`) in E4 and ZoomInfo scoops in E3, both zero risk.
 
-## Why this design cannot get the account banned
+## Why this cannot get the account banned
 
-Bans come from four things (verified against 2026 guidance): high request velocity,
-robotic timing / headless fingerprints, datacenter IPs, and hammering the login wall.
-This design does none of them:
+Bans come from four things (verified, 2026): request velocity, robotic timing / headless
+fingerprints, datacenter IPs, and hammering the login wall. This design does none of them:
 
-- **Your real Chrome, your real login, your real home IP.** We attach to the browser you
-  already use — not a fresh automated Chromium (the thing that gets fingerprinted and was
-  almost certainly the cause of the captcha loops on the other project). A 2026 benchmark
-  put vanilla Playwright/Chromium as the *most* detected tool; a real Chrome driven over
-  CDP is the least.
-- **Read-only, one page, one prospect per tick.** No clicks, no messages, no follows, no
-  typing. A handful of profile views per day — far under the 20–50/day "safe" ceiling.
-- **Skip-on-anything.** The prompt's hard rule: at the first sign of a login wall,
-  checkpoint, or captcha, E5 stops and moves on. It NEVER logs in, NEVER solves a captcha,
-  NEVER retries. The captcha-loop failure mode is impossible because we never engage one.
+- **Your real Chrome, real login, real home IP.** Automation attaches over CDP to a real,
+  manually-logged-in Chrome — never a fresh automated Chromium (the fingerprinted thing that
+  caused the captcha loops before). A 2026 benchmark rated a real Chrome over CDP as the
+  least-detected setup and vanilla Playwright/Chromium as the most.
+- **Read-only, one page, one prospect per tick.** The run scripts grant only three
+  Playwright tools — `browser_navigate`, `browser_snapshot`, `browser_wait_for`. There is
+  **no click / type / submit tool available at all**, so interaction is impossible, not just
+  discouraged. A handful of profile views a day, far under the 20–50/day safe ceiling.
+- **Skip-on-anything.** The prompt stops E5 at the first login wall / checkpoint / captcha,
+  records `linkedin_blocked`, and moves on. It never logs in, never solves a captcha, never
+  retries. The captcha-loop failure mode is impossible because we never engage one.
 
-## One-time setup
+## One-time setup (spare PC, non-admin PowerShell)
 
-### 1. Keep a Chrome signed in to LinkedIn, with a remote-debugging port
+### 1. Launch the dedicated logged-in Chrome
 
-Use a dedicated Chrome profile (so it never fights your normal browsing) and launch it
-with remote debugging. Create a shortcut / scheduled command:
-
-```
-"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
-  --remote-debugging-port=9222 ^
-  --user-data-dir="C:\Users\admin\icp-chrome-profile"
+```powershell
+cd "C:\Users\admin\Documents\ICP automate system\icp-autopilot"
+git pull
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-cdp-chrome.ps1
 ```
 
-Sign in to LinkedIn (and Sales Navigator if you use it) **once** in that window. Leave it
-running. The session persists in that profile, so it stays logged in across reboots as
-long as you relaunch with the same `--user-data-dir`.
+A Chrome window opens on a dedicated profile (`%LOCALAPPDATA%\ICP-Autopilot\ChromeCDP`) with
+debug port 9222. **Log into LinkedIn in that window once.** It stays logged in across
+reboots. Use this profile for LinkedIn only — never sign into anything sensitive in it (any
+local process that reaches port 9222 can control it).
 
-### 2. Point the browser MCP at that Chrome (CDP), not a new browser
+### 2. Register the browser MCP (attach to that Chrome — do NOT let it launch its own)
 
-The MCP must **connect** to the running Chrome, not launch its own. With the Playwright
-MCP that is the `--cdp-endpoint` option; with the chrome-devtools MCP it is
-`--browserUrl` / the CDP connect flag. Example (Playwright MCP):
-
-```
-claude mcp add playwright -- npx @playwright/mcp@latest --cdp-endpoint http://localhost:9222
+```powershell
+claude mcp add --scope user --transport stdio linkedin-browser -- npx -y @playwright/mcp@latest --cdp-endpoint=http://127.0.0.1:9222 --cdp-timeout=10000
+claude mcp list
 ```
 
-> Confirm the exact MCP server name you register here (`playwright`, or whatever you name
-> it). That name is what goes into `--allowedTools` in step 3.
+The server **must** be named `linkedin-browser` — that is the exact name already granted in
+`scripts/run.ps1` and `scripts/run-once.ps1`. The `--cdp-endpoint` flag is what makes it
+attach to your Chrome instead of spawning a fresh (detectable) one.
 
-### 3. Allow the browser MCP for the headless run
+### 3. Turn E5 on
 
-`scripts/run.ps1` and `scripts/run-once.ps1` build an `--allowedTools` string. Add your
-browser MCP server to it, e.g. append `,mcp__playwright`. (Left out until you confirm the
-server name, so a wrong name can't silently break a tick — until then E5 just records
-`linkedin_logged_out` and skips, which is harmless.)
+In `config/config.json`: `"linkedin": { "enabled": true }`. The `linkedin_loads_per_day`
+cap (default 15) bounds it regardless.
 
-### 4. Turn E5 on
+### 4. Keep Chrome running
 
-In `config/config.json` set `"linkedin": { "enabled": true }`. The `linkedin` cap
-(`linkedin_loads_per_day`, default 15) bounds it regardless.
+The launcher is idempotent (re-running it just confirms Chrome is up). Add it to your
+Startup folder, or run it before a test. If Chrome isn't up, E5 simply records
+`linkedin_logged_out` and skips — harmless.
 
-## Verifying it works
+## Verify
 
-Run `scripts/run-once.ps1` for a prospect you know has recent posts. In the draft's
-`enrichment.linkedin.recent_activity` you should see their latest post(s). If you instead
-see gap `linkedin_logged_out`, the MCP isn't connected to the logged-in Chrome (recheck
-steps 1–3). If you see `linkedin_blocked`, LinkedIn showed a challenge and E5 correctly
-backed off — no retry, no risk.
+Run `scripts\run-once.ps1` for a prospect with recent posts. Look in the draft's
+`enrichment.linkedin.recent_activity` for their latest post(s).
+
+- Empty + gap `linkedin_logged_out` → the MCP isn't attached to the logged-in Chrome
+  (recheck steps 1–2, and `claude mcp list`).
+- Gap `linkedin_blocked` → LinkedIn showed a challenge and E5 correctly backed off. No
+  retry, no risk. Try again later; do not solve anything manually on its behalf.

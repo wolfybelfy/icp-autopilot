@@ -55,7 +55,7 @@ try {
     # explicitly on the CLI - honored regardless of workspace-trust state, unlike
     # .claude/settings.json. Comma-separated, no spaces (Start-Process arg quoting).
     # dontAsk (when the CLI supports it) denies anything NOT allowed instead of stalling.
-    $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python:*),Bash(py:*)"
+    $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,mcp__linkedin-browser__browser_navigate,mcp__linkedin-browser__browser_snapshot,mcp__linkedin-browser__browser_wait_for,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python:*),Bash(py:*)"
     $claudeArgs = @("-p", "@prompts/run-prompt.md", "--output-format", "text",
                     "--allowedTools", $allowed)
     if ((& claude --help 2>&1 | Out-String) -match "dontAsk") {

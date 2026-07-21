@@ -129,7 +129,7 @@ else:
     # and every official docs example uses the space form. This does NOT weaken any safety
     # gate: dry_run, the ICP re-check, caps, dedup and the human approval step all live in
     # the deterministic Python send phase and are unaffected by Claude's tool permissions.
-    $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python *),Bash(py *)"
+    $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,mcp__linkedin-browser__browser_navigate,mcp__linkedin-browser__browser_snapshot,mcp__linkedin-browser__browser_wait_for,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python *),Bash(py *)"
     $cargs = @("-p", "@prompts/run-prompt.md", "--output-format", "text", "--allowedTools", $allowed)
     if ((& claude --help 2>&1 | Out-String) -match "dontAsk") { $cargs += @("--permission-mode", "dontAsk") }
     $cl = Invoke-TreeProcess "claude" "claude" $cargs 480
