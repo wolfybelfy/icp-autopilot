@@ -21,6 +21,16 @@ def test_prompt_covers_live_pipeline_rules():
                      "scratch"):             # no helper scripts in state/
         assert required in t, f"prompt missing: {required}"
 
+def test_prompt_covers_priority_target():
+    """scripts/run-once.ps1 forces one visitor through by dropping state/priority.json;
+    the prompt must honour it (search Warmly by email regardless of backlog position)."""
+    t = P.read_text(encoding="utf-8").lower()
+    for required in ("priority target",       # the operator-forced section exists
+                     "state/priority.json",   # the exact file it keys on
+                     "30 pages",              # bounded search so it can't loop forever
+                     "priority_not_found"):    # honest report when the visitor aged out
+        assert required in t, f"prompt missing: {required}"
+
 def test_prompt_covers_enrichment_verdict_rules():
     """2026-07-21: k.morrison@f5.com was a ZoomInfo FULL_MATCH (Kyle Morrison, Principal
     SWE at F5, score 91) but E1 misread it as a miss, cached the miss for 7 days, and

@@ -13,7 +13,8 @@ Never assume, infer, or fabricate data: missing data stays blank, every claim ha
 - Never create helper/scratch scripts or any file not explicitly named here. Allowed
   writes, exhaustively: `state/watermark.json`, `state/seen.json`,
   `state/enrich_cache.json`, `state/caps.json`, `state/backfill.json`,
-  `drafts/inbox/<visitor_id>.json`, `drafts/inbox/<visitor_id>.retry.json`,
+  `state/priority.json` (operator-created — you may only delete it, per the priority
+  section), `drafts/inbox/<visitor_id>.json`, `drafts/inbox/<visitor_id>.retry.json`,
   `logs/claude-runs.jsonl`. If a tool result is too large to read, re-call it with a
   smaller `take` (10) and paginate by offset — never write a parser script to cope.
 - Never invent a timestamp — you have no reliable clock. Every timestamp you write must
@@ -25,6 +26,22 @@ Never assume, infer, or fabricate data: missing data stays blank, every claim ha
   visitor merely because their activity predates the watermark.
 - Do not clean up, inspect, or comment on anything outside this task (stray files, git
   status, config, the lock). Your only report is the JSON log line in §4.
+
+## Priority target (operator-forced — check FIRST, before §0)
+
+If `state/priority.json` exists (shape `{"email": "..."}`), an operator has asked you to
+push ONE specific visitor all the way through the pipeline right now:
+
+1. Page `list_warm_visitors` (past_month, take 10, newest first), up to 30 pages, until a
+   visitor's identified person email equals that address (case-insensitive).
+2. If found: remove that visitor's id from `state/seen.json` if present; delete any
+   `drafts/inbox/<that id>.retry.json`; then run §1–§3 for them FIRST, outside the work
+   cap. Re-run E1 (§2) FRESH for this visitor — never accept a cached person-level miss.
+3. If not found within 30 pages: note `priority_not_found` in the §4 report.
+4. Either way, then proceed with normal detection (§0) as usual.
+
+You may be unable to delete `state/priority.json` in this sandbox — that is fine, the
+operator's runner removes it. Do not spend effort fighting the sandbox to delete it.
 
 ## 0. Detect (every tick)
 
