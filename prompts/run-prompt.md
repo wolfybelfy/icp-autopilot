@@ -116,15 +116,31 @@ record the gap and skip the stage.
 - **E3 signals:** ZoomInfo `enrich_company_signals` (INTENT + NEWS + SCOOP in one call).
   The hiring pattern comes from scoops: Hiring Plans / Open Position / New Hire / Layoffs /
   Executive Move. Failure → gap `signals_failed`, continue.
-- **E4 google:** 2–4 WebSearch queries — person+company quotes/talks/podcasts; company
-  news this year; company careers page. Every fact you keep MUST have a source URL you
-  fetched with HTTP 200 in THIS run (WebFetch). NEVER write a URL from memory.
-- **E5 linkedin** (only if `config/config.json` `linkedin.enabled` is true and the cap
-  allows): use the Playwright MCP against the already-logged-in browser profile. Max 3
-  page loads for this prospect: their profile activity, the company page posts, the
-  company jobs page (opening count). Wait 8–15 s between loads. READ ONLY — never click
-  connect/message/react. Logged out or any challenge/block page → gap
-  `linkedin_logged_out` / `linkedin_blocked`, skip silently, never attempt re-auth.
+- **E4 google (this is web search, NOT LinkedIn browsing — zero bot risk):** 2–5 WebSearch
+  queries: person+company quotes/talks/podcasts; company news this year; company careers
+  page; and a hiring-signal cross-check via `site:linkedin.com/jobs "<Company>"` and
+  `"<Company>" (hiring OR "open roles" OR "we're hiring")`. The LinkedIn-jobs query is a
+  discovery aid — read the result titles/snippets for open roles; do NOT open a browser for
+  it. Every fact you STATE in the email MUST have a source URL you fetched with HTTP 200 in
+  THIS run (WebFetch); LinkedIn pages usually won't fetch 200 (login wall), so cite a
+  fetchable careers page or news article for any hiring claim, or keep it as unstated
+  context for E6. NEVER write a URL from memory.
+- **E5 linkedin — the prospect's recent posts only** (optional add-on; runs ONLY if
+  `config/config.json` `linkedin.enabled` is true, the linkedin cap in `state/caps.json`
+  allows, AND the browser MCP is connected to the operator's REAL, already-logged-in Chrome
+  over CDP — never a fresh or automated Chromium). Increment the linkedin cap counter BEFORE
+  the load. Rules, strict:
+  - READ ONLY. Navigate, read, leave. NEVER click connect/message/react/follow, never type,
+    never submit, never open a second prospect this tick.
+  - ONE navigation only: the prospect's `/recent-activity/all/`. Read the newest 1–3 public
+    posts as a personalization hook. Wait 8–15 s after load before reading.
+  - Ban-safety overrides everything: if you see ANY login wall, security checkpoint, captcha,
+    "unusual activity" notice, or anything that is not their normal activity page → record
+    gap `linkedin_blocked`, STOP E5 immediately, and continue with what you already have.
+    NEVER attempt to log in, NEVER solve or wait out a captcha, NEVER retry, NEVER re-auth.
+    One skipped prospect is always cheaper than a flagged account.
+  - Browser MCP absent / not connected / logged out → gap `linkedin_logged_out`, skip
+    silently. LinkedIn data is a bonus; its absence never blocks the draft.
 - **E6 synthesis:** rank hooks (recent post > new-in-role > intent topic tied to visited
   pages > hiring signal > news > funding). Hypothesize why they visited, tying
   `visit.pages` to signals. Only claims with sources survive.

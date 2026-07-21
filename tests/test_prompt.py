@@ -31,6 +31,20 @@ def test_prompt_covers_priority_target():
                      "priority_not_found"):    # honest report when the visitor aged out
         assert required in t, f"prompt missing: {required}"
 
+def test_prompt_covers_linkedin_antiban_and_jobs_signal():
+    """The hiring signal must be zero-risk Google search, and the E5 LinkedIn read must
+    bake in the anti-ban operating model (real logged-in Chrome, read-only, skip-on-block,
+    never solve a captcha / never re-auth)."""
+    t = P.read_text(encoding="utf-8").lower()
+    for required in ("site:linkedin.com/jobs",     # hiring signal via search, not browsing
+                     "recent-activity",            # E5 reads only the activity page
+                     "already-logged-in chrome",   # real browser over CDP, not fresh chromium
+                     "read only",                  # no interaction
+                     "never solve or wait out a captcha",  # the exact loop we refuse to enter
+                     "never re-auth",
+                     "linkedin_blocked"):           # graceful skip gap
+        assert required in t, f"prompt missing: {required}"
+
 def test_prompt_covers_enrichment_verdict_rules():
     """2026-07-21: k.morrison@f5.com was a ZoomInfo FULL_MATCH (Kyle Morrison, Principal
     SWE at F5, score 91) but E1 misread it as a miss, cached the miss for 7 days, and
