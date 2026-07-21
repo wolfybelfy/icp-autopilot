@@ -5,18 +5,57 @@ you only write draft JSON files. Deterministic Python gates everything after you
 Work from the repo root. Do not modify any file outside `state/`, `drafts/inbox/`, `logs/`.
 Never assume, infer, or fabricate data: missing data stays blank, every claim has a source.
 
-## 0. Early exit
+## Hard operating rules (each exists because a real tick broke it)
 
-Read `state/watermark.json` (`{"since": ISO}`) and `state/seen.json`. Call the Warmly MCP
-(`list_warm_visitors`, `timeWindow` past_month, `take` <= 50, paginate by offset) and keep
-only identified visitors with activity newer than the watermark and whose id is not in
-`seen.json`. If none: update the watermark to now, append one line to
-`logs/claude-runs.jsonl` (`{"ts": ..., "visitors": 0}`) and STOP. This is the early exit —
-most ticks end here.
+- `state/tick.lock` belongs to `scripts/run.ps1`, which creates it BEFORE launching you and
+  removes it after you exit. It ALWAYS exists while you run — it never means a concurrent
+  run is live. Ignore it completely.
+- Never create helper/scratch scripts or any file not explicitly named here. Allowed
+  writes, exhaustively: `state/watermark.json`, `state/seen.json`,
+  `state/enrich_cache.json`, `state/caps.json`, `state/backfill.json`,
+  `drafts/inbox/<visitor_id>.json`, `drafts/inbox/<visitor_id>.retry.json`,
+  `logs/claude-runs.jsonl`. If a tool result is too large to read, re-call it with a
+  smaller `take` (10) and paginate by offset — never write a parser script to cope.
+- Never invent a timestamp — you have no reliable clock. Every timestamp you write must
+  be copied from observed data (a visitor's `lastSeen`). `state/watermark.json` may only
+  move FORWARD, and only to the newest `lastSeen` you actually observed this run; if
+  nothing newer was observed, leave it unchanged. Never write your guess of "now".
+- A visitor is NEW if and only if they are identified and their id is NOT in
+  `state/seen.json`. The watermark is a paging optimization only — never skip an unseen
+  visitor merely because their activity predates the watermark.
+- Do not clean up, inspect, or comment on anything outside this task (stray files, git
+  status, config, the lock). Your only report is the JSON log line in §4.
+
+## 0. Detect (every tick)
+
+Read `state/watermark.json` (`{"since": ISO}`), `state/seen.json`, and
+`state/backfill.json` (`{"offset": N, "done": bool}`; missing file means
+`{"offset": 0, "done": false}`).
+
+Call the Warmly MCP `list_warm_visitors` (`timeWindow` past_month, `take` 10, `offset` 0,
+newest first). Keep identified visitors whose id is not in `seen.json`. If every row in
+the page was unseen, fetch the next page (offset +10, max 5 pages total); stop paging as
+soon as a page contains an already-seen visitor.
+
+**Backlog drain:** if `backfill.done` is false, fetch ONE extra page at
+`offset: backfill.offset` with `take` 10 and add its unseen identified visitors to this
+tick's work list. After evaluating them (§1), write `backfill.offset += 10`; when the new
+offset reaches the account's total visitor count (reported in the tool response), also
+write `"done": true`.
+
+**Work cap:** evaluate at most 20 visitors per tick, newest first. The rest stay absent
+from `seen.json` and surface automatically on later ticks.
+
+**Early exit:** only when there are no new visitors AND `drafts/inbox/` contains no
+`.retry.json` files AND `backfill.done` is true: append
+`{"ts": <newest lastSeen observed, else the previous watermark>, "visitors": 0}` to
+`logs/claude-runs.jsonl`, update the watermark per the rules above, and STOP.
 
 ## 1. Per new visitor
 
-Record every evaluated visitor in `seen.json` (`{id: {status, reason, at}}`).
+Record every evaluated visitor in `seen.json` (`{id: {status, reason, at}}`) — write the
+entry as soon as the visitor is evaluated, so a killed run never re-does work. `at` is
+the visitor's `lastSeen`, not an invented time.
 
 - No identified person/email → status `no_person`. Stop for this visitor.
 - Build the company record `{raw_classifications, employees, employee_range,
@@ -57,6 +96,15 @@ counters yourself BEFORE each call; if a cap is reached, record the gap and skip
   pages > hiring signal > news > funding). Hypothesize why they visited, tying
   `visit.pages` to signals. Only claims with sources survive.
 
+## 2b. Retry pass (every tick — runs even when there are zero new visitors)
+
+For each `drafts/inbox/*.retry.json`, oldest first, max 3 per tick: re-run the enrichment
+playbook (§2) for that visitor starting at the stage that failed. On success, write the
+draft (§3) and DELETE the `.retry.json`. On failure, rewrite it with `attempts` + 1.
+When attempts reach 12: set the visitor's `seen.json` status to `parked`, delete the
+`.retry.json`, and count it under `parked` in the report. Retries share the §0 work cap
+and the §2 daily caps.
+
 ## 3. Draft
 
 Write `drafts/inbox/<visitor_id>.json` exactly matching the schema in
@@ -70,6 +118,9 @@ claim in the email must appear in `sources[]` with its verified URL. Include
 
 Append one JSON line to `logs/claude-runs.jsonl`:
 `{"ts", "visitors", "new", "icp", "drafts", "retries", "parked", "gaps", "credits_note"}`.
-Once per day also call Warmly `get_credits_remaining` and include it (warn if < 100).
+`ts` follows the timestamp rule: the newest observed `lastSeen`, never an invented "now".
+Once per day call Warmly `get_credits_remaining` and include it (warn if < 100) — "once
+per day" means: skip only if the most recent `credits_note` line already in
+`logs/claude-runs.jsonl` carries a `ts` from the same calendar date as this run's `ts`.
 Update `state/watermark.json` last. Never touch `state/send_log.json`,
 `state/approvals.json`, or `config/` — those belong to the deterministic layer.

@@ -17,6 +17,10 @@ if (Test-Path $Lock) {
     Say "stale lock ($([int]$age.TotalMinutes)m) - stealing"; Remove-Item $Lock -Force
 }
 New-Item -ItemType File -Force $Lock | Out-Null
+# Sandboxed claude runs can create but not delete '_*' scratch files in state\ - sweep them
+# here so they never accumulate. Real state files never start with an underscore.
+Get-ChildItem (Join-Path $Root "state") -Filter "_*" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 try {
     Say "phase pre"
     PyRun pipeline\tick.py --phase pre | Out-File $Log -Append -Encoding utf8
