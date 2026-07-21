@@ -20,3 +20,18 @@ def test_prompt_covers_live_pipeline_rules():
                      "paging optimization",  # seen.json, not watermark, defines "new"
                      "scratch"):             # no helper scripts in state/
         assert required in t, f"prompt missing: {required}"
+
+def test_prompt_covers_enrichment_verdict_rules():
+    """2026-07-21: k.morrison@f5.com was a ZoomInfo FULL_MATCH (Kyle Morrison, Principal
+    SWE at F5, score 91) but E1 misread it as a miss, cached the miss for 7 days, and
+    every retry replayed the poisoned cache until the prospect parked. Meanwhile two
+    freemail visitors burned retries the send gates could never pass."""
+    t = P.read_text(encoding="utf-8").lower()
+    for required in ("full_match",           # email-lookup FULL_MATCH = the person, final
+                     "identity anchor",      # never re-judged against Warmly's fuzzy name
+                     "fallback",             # second query form before declaring a miss
+                     "must never\n" "reuse one",   # detection may use cached misses...
+                     "never\ntrust a cached person-level miss",  # ...retries may not
+                     "freemail_no_business_email"):  # freemail dead-ends park immediately
+        assert required.replace("\n", " ") in t.replace("\n", " "), \
+            f"prompt missing: {required!r}"

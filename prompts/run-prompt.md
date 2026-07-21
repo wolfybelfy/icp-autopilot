@@ -67,16 +67,32 @@ the visitor's `lastSeen`, not an invented time.
 ## 2. Enrichment playbook (ICP only, stages in order)
 
 Cache every result in `state/enrich_cache.json` — 12-month TTL for hits, 7-day TTL for
-person-level misses (a miss must never mask a later real match). Respect caps in
-`state/caps.json`: `zoominfo` <= 50/day, `linkedin` <= 15 page loads/day — increment the
-counters yourself BEFORE each call; if a cap is reached, record the gap and skip the stage.
+person-level misses (a miss must never mask a later real match). Cached misses are
+consulted ONLY when evaluating a brand-new visitor; the retry pass (§2b) must never
+reuse one. Respect caps in `state/caps.json`: `zoominfo` <= 50/day, `linkedin` <= 15
+page loads/day — increment the counters yourself BEFORE each call; if a cap is reached,
+record the gap and skip the stage.
 
-- **E1 person (REQUIRED):** ZoomInfo `enrich_contacts` with fields: email, jobTitle,
-  jobFunction, managementLevel, positionStartDate, employmentHistory, education,
-  yearsOfExperience, externalUrls, contactAccuracyScore. No verified business email means
-  no draft — NEVER guess a person. Failure → write
-  `drafts/inbox/<visitor_id>.retry.json` (`{"attempts": n+1, "visitor": ...}`); after 12
-  attempts set seen status `parked`.
+- **E1 person (REQUIRED):** ZoomInfo `enrich_contacts` looked up by the visitor's email,
+  with fields: email, jobTitle, jobFunction, managementLevel, positionStartDate,
+  employmentHistory, education, yearsOfExperience, externalUrls, contactAccuracyScore.
+  Read the verdict from the response itself, strictly:
+  - `matchStatus: FULL_MATCH` on an email lookup IS the person — the mailbox is the
+    identity anchor. NEVER downgrade a full email match because Warmly's name or title
+    differs; Warmly is the fuzzier source. (2026-07-21: a FULL_MATCH contact was misread
+    as a miss, the miss was cached, and every retry replayed it until the prospect parked.)
+  - `COMPANY_ONLY_MATCH` or no match = miss. On a miss make ONE fallback call in the same
+    tick: `enrich_contacts` with `{fullName, companyName}` from Warmly. Accept the
+    fallback only if it is a FULL_MATCH whose returned business email's domain matches
+    the company's domain.
+  - No verified business email after both forms → no draft. NEVER guess a person.
+  - If the visitor's only known email is a free-mail domain (gmail/yahoo/hotmail/outlook/
+    aol/icloud/proton) and both forms missed, the deterministic send gates can never pass
+    this recipient: set seen status `parked` (reason `freemail_no_business_email`)
+    immediately — do NOT write a retry file, do not burn 12 attempts on it.
+  - Any other failure → write `drafts/inbox/<visitor_id>.retry.json`
+    (`{"attempts": n+1, "visitor": ...}` — include the visitor's Warmly name, company and
+    pages so retries can re-query); after 12 attempts set seen status `parked`.
 - **E2 company:** ZoomInfo `enrich_companies` — industries, employeeCount,
   employeeCountByDepartment, revenue, companyFunding, recentFundingDate, foundedYear,
   businessModel, description. Failure → retry as E1.
@@ -99,11 +115,13 @@ counters yourself BEFORE each call; if a cap is reached, record the gap and skip
 ## 2b. Retry pass (every tick — runs even when there are zero new visitors)
 
 For each `drafts/inbox/*.retry.json`, oldest first, max 3 per tick: re-run the enrichment
-playbook (§2) for that visitor starting at the stage that failed. On success, write the
-draft (§3) and DELETE the `.retry.json`. On failure, rewrite it with `attempts` + 1.
-When attempts reach 12: set the visitor's `seen.json` status to `parked`, delete the
-`.retry.json`, and count it under `parked` in the report. Retries share the §0 work cap
-and the §2 daily caps.
+playbook (§2) for that visitor starting at the stage that failed. A retry must NEVER
+trust a cached person-level miss — a possibly-poisoned miss is exactly what the retry
+exists to re-test. Re-call E1 fresh (both query forms); only positive hits may come from
+cache. On success, write the draft (§3) and DELETE the `.retry.json`. On failure, rewrite
+it with `attempts` + 1. When attempts reach 12: set the visitor's `seen.json` status to
+`parked`, delete the `.retry.json`, and count it under `parked` in the report. Retries
+share the §0 work cap and the §2 daily caps.
 
 ## 3. Draft
 

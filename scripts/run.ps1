@@ -17,9 +17,10 @@ if (Test-Path $Lock) {
     Say "stale lock ($([int]$age.TotalMinutes)m) - stealing"; Remove-Item $Lock -Force
 }
 New-Item -ItemType File -Force $Lock | Out-Null
-# Sandboxed claude runs can create but not delete '_*' scratch files in state\ - sweep them
-# here so they never accumulate. Real state files never start with an underscore.
-Get-ChildItem (Join-Path $Root "state") -Filter "_*" -File -ErrorAction SilentlyContinue |
+# Sandboxed claude runs can create but not delete scratch files in state\ - sweep them
+# here so they never accumulate. Real state files never start with '_' or 'tmp'.
+Get-ChildItem (Join-Path $Root "state") -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like "_*" -or $_.Name -like "tmp*" } |
     Remove-Item -Force -ErrorAction SilentlyContinue
 # Trust self-heal: an exiting claude session or a CLI update can rewrite ~/.claude.json and
 # drop this workspace's trust key. Untrusted = user-scoped MCP servers (Warmly) never load,
