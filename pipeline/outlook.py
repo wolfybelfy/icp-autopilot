@@ -1,7 +1,8 @@
 """The ONLY module that talks to Outlook COM. Requires classic Outlook (New Outlook has no COM)."""
 import urllib.request
 
-PR_SMTP = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E"
+# PR_SENDER_SMTP_ADDRESS on the message - present for internet mail and most Exchange mail.
+PR_SENDER_SMTP = "http://schemas.microsoft.com/mapi/proptag/0x5D01001F"
 
 def verify_url(url, timeout=10):
     if not str(url).startswith(("http://", "https://")):
@@ -12,6 +13,31 @@ def verify_url(url, timeout=10):
             return r.status == 200
     except Exception:
         return False
+
+def sender_smtp(msg):
+    """Resolve a message's sender to a real SMTP address.
+
+    Internal Exchange mail reports the sender as an X.500 DN
+    ('/o=exchangelabs/...'), which can never match approver_addresses - that
+    silently broke approval replies from the approver's own tenant. Try the
+    message-level SMTP property first, then resolve the DN through the GAL.
+    """
+    try:
+        s = msg.PropertyAccessor.GetProperty(PR_SENDER_SMTP)
+        if s and "@" in s:
+            return s
+    except Exception:
+        pass
+    try:
+        if getattr(msg, "SenderEmailType", "") == "EX":
+            exu = msg.Sender.GetExchangeUser()
+            if exu is not None:
+                s = exu.PrimarySmtpAddress
+                if s and "@" in s:
+                    return s
+    except Exception:
+        pass
+    return getattr(msg, "SenderEmailAddress", "") or ""
 
 class Outlook:
     def __init__(self, app=None):
@@ -47,11 +73,8 @@ class Outlook:
             try:
                 if getattr(msg, "Class", 43) != 43:      # 43 = olMail
                     continue
-                try:
-                    sender = msg.PropertyAccessor.GetProperty(PR_SMTP)
-                except Exception:
-                    sender = getattr(msg, "SenderEmailAddress", "") or ""
-                out.append({"subject": msg.Subject or "", "sender": (sender or "").lower(),
+                out.append({"subject": msg.Subject or "",
+                            "sender": (sender_smtp(msg) or "").lower(),
                             "body": msg.Body or "",
                             "received": msg.ReceivedTime.strftime("%Y-%m-%dT%H:%M:%S")})
             except Exception:
