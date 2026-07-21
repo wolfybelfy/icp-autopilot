@@ -124,7 +124,12 @@ else:
 
     Step "[4/5] Detection + ICP + ZoomInfo + enrichment + draft (Claude, up to 8 min)"
     Info "Please wait - no output appears until Claude finishes. Watch for a draft for $Email."
-    $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python:*),Bash(py:*)"
+    # Grant exactly the tools the run-prompt needs. Bash is scoped to python with the SPACE
+    # form Bash(python *) - the colon form Bash(python:*) was denied under headless dontAsk,
+    # and every official docs example uses the space form. This does NOT weaken any safety
+    # gate: dry_run, the ICP re-check, caps, dedup and the human approval step all live in
+    # the deterministic Python send phase and are unaffected by Claude's tool permissions.
+    $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python *),Bash(py *)"
     $cargs = @("-p", "@prompts/run-prompt.md", "--output-format", "text", "--allowedTools", $allowed)
     if ((& claude --help 2>&1 | Out-String) -match "dontAsk") { $cargs += @("--permission-mode", "dontAsk") }
     $cl = Invoke-TreeProcess "claude" "claude" $cargs 480
@@ -164,9 +169,9 @@ if ($found) {
     Write-Host "  Check upawar@unboundia.com for:  Approval [#XXXXXX] - ... (F5)" -ForegroundColor Green
     Write-Host "  A file in drafts\rejected = it was gated; the reason is in the log below." -ForegroundColor Yellow
 } else {
-    Write-Host "  No draft for $Email this run. Likely 'priority_not_found' (visitor aged out of" -ForegroundColor Yellow
-    Write-Host "  Warmly's past-month window) or a ZoomInfo miss. See the Claude output above and" -ForegroundColor Yellow
-    Write-Host "  the log tail below for the exact reason." -ForegroundColor Yellow
+    Write-Host "  No draft for $Email this run. If the Claude output above says Bash was still" -ForegroundColor Yellow
+    Write-Host "  denied, tell me - the fallback is one extra flag. Otherwise it is likely" -ForegroundColor Yellow
+    Write-Host "  'priority_not_found' (aged out of Warmly's month window) or a ZoomInfo miss." -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host "  --- last 25 log lines ---" -ForegroundColor DarkGray
