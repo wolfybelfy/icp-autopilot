@@ -1,22 +1,26 @@
 # scripts\run-once.ps1
 # Standalone, FOREGROUND single pipeline run. Bypasses Task Scheduler entirely.
 #
-# What it does, in order:
-#   1. Force-kills any leftover claude / tick.py / run.ps1 process TREES (the zombies that
-#      keep a console window and the lock alive).
-#   2. Holds state\tick.lock for the duration, so a scheduled tick that fires mid-run
-#      SKIPS instead of racing us on the same state files.
-#   3. Drops state\priority.json naming one visitor. The run-prompt sees it and pushes that
-#      exact visitor through detect -> ICP -> ZoomInfo -> enrich -> draft FIRST, regardless
-#      of where they sit in the backlog.
-#   4. Runs Claude once, then the send phase once - each wrapped in a hard timeout + full
-#      process-tree kill, so neither can ever hang this window.
-#   5. Reports exactly where the draft landed and cleans up.
+# TWO MODES:
+#   -Email x@y.com   push ONE specific visitor through end-to-end.
+#   -FindIcp         find the FIRST prospect in the last -WindowHours (default 48) that
+#                    passes BOTH gates (company + marketing-Mgr+/product-Sr+ persona) and
+#                    take only that one all the way to a drafted approval email.
 #
-# Usage (NON-admin PowerShell window, from the repo root):
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-once.ps1 k.morrison@f5.com
+# It force-kills zombie tick processes, holds state\tick.lock so a scheduled tick can't
+# race it, drops state\priority.json, runs Claude then the send phase (each under a hard
+# timeout with a full process-tree kill), and prints exactly where the draft + approval
+# landed. Nothing here can hang or zombie.
+#
+# Usage (NON-admin PowerShell, from the repo root, with Outlook OPEN):
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-once.ps1 -FindIcp
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-once.ps1 -Email k.morrison@f5.com
 
-param([string]$Email = "k.morrison@f5.com")
+param(
+    [string]$Email = "",
+    [switch]$FindIcp,
+    [int]$WindowHours = 48
+)
 
 $ErrorActionPreference = "Continue"
 $Root = Split-Path -Parent $PSScriptRoot
@@ -27,11 +31,15 @@ $Log      = Join-Path $Root ("logs\tick-" + (Get-Date -Format "yyyy-MM-dd") + ".
 $Lock     = Join-Path $Root "state\tick.lock"
 $Priority = Join-Path $Root "state\priority.json"
 
+if (-not $FindIcp -and -not $Email) {
+    Write-Host "Give one of:  -FindIcp   OR   -Email someone@company.com" -ForegroundColor Yellow
+    exit 2
+}
+
 function Step($m) { Write-Host ""; Write-Host ("=== " + $m + " ===") -ForegroundColor Cyan }
 function Info($m) { Write-Host "  $m" }
 function Say($m)  { ("{0} [run-once] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) | Out-File $Log -Append -Encoding utf8 }
 
-# Win10: 'python' may be the Microsoft Store stub; fall back to the 'py -3' launcher.
 $script:UsePy = -not ((python --version 2>&1) -match "^Python 3")
 function PyExe  { if ($script:UsePy) { "py" }        else { "python" } }
 function PyArgs([string[]]$a) { if ($script:UsePy) { @("-3") + $a } else { $a } }
@@ -82,9 +90,10 @@ function Kill-Zombies {
     }
 }
 
-Step "ICP Autopilot - single foreground run for: $Email"
-Info "Bypasses Task Scheduler. Kills leftovers, forces this visitor through, runs once."
-Info "Total time: up to ~10 minutes. Leave this window open until you see 'DONE'."
+if ($FindIcp) { $what = "first ICP in the last ${WindowHours}h" } else { $what = $Email }
+Step "ICP Autopilot - single foreground run for: $what"
+Info "Bypasses Task Scheduler. Kills leftovers, runs once. Make sure OUTLOOK IS OPEN."
+Info "Up to ~12 minutes. Leave this window open until you see 'DONE'."
 
 Step "[1/5] Clearing stuck / zombie tick processes"
 Kill-Zombies
@@ -93,10 +102,18 @@ New-Item -ItemType File -Force $Lock | Out-Null   # hold the lock so scheduled t
 Say "run-once started; holding lock"
 
 try {
-    Step "[2/5] Marking $Email as the priority target"
+    Step "[2/5] Setting the target"
     $utf8 = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($Priority, ('{"email": "' + $Email + '"}'), $utf8)
-    Info "wrote state\priority.json"
+    if ($FindIcp) {
+        # UTC cutoff computed HERE (reliable clock) and handed to the model, so it never has
+        # to invent 'now'. Warmly lastSeen is UTC; comparing in UTC ignores the PC's offset.
+        $since = (Get-Date).ToUniversalTime().AddHours(-$WindowHours).ToString("yyyy-MM-ddTHH:mm:ssZ")
+        [System.IO.File]::WriteAllText($Priority, ('{"mode": "first_icp", "since": "' + $since + '"}'), $utf8)
+        Info "wrote state\priority.json  (mode=first_icp, since=$since UTC)"
+    } else {
+        [System.IO.File]::WriteAllText($Priority, ('{"email": "' + $Email + '"}'), $utf8)
+        Info "wrote state\priority.json  (email=$Email)"
+    }
 
     Step "[3/5] Healing workspace trust (so Warmly + ZoomInfo MCP servers load)"
     $trustCode = @"
@@ -122,26 +139,21 @@ else:
     $healed = if ($script:UsePy) { & py -3 -c $trustCode 2>&1 } else { & python -c $trustCode 2>&1 }
     Info ("$healed")
 
-    Step "[4/5] Detection + ICP + ZoomInfo + enrichment + draft (Claude, up to 8 min)"
-    Info "Please wait - no output appears until Claude finishes. Watch for a draft for $Email."
-    # Grant exactly the tools the run-prompt needs. Bash is scoped to python with the SPACE
-    # form Bash(python *) - the colon form Bash(python:*) was denied under headless dontAsk,
-    # and every official docs example uses the space form. This does NOT weaken any safety
-    # gate: dry_run, the ICP re-check, caps, dedup and the human approval step all live in
-    # the deterministic Python send phase and are unaffected by Claude's tool permissions.
+    Step "[4/5] Detect + gate (company + persona) + ZoomInfo + enrich + draft (Claude, up to 10 min)"
+    Info "Please wait - no output appears until Claude finishes."
     $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,mcp__linkedin-browser__browser_navigate,mcp__linkedin-browser__browser_snapshot,mcp__linkedin-browser__browser_wait_for,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python *),Bash(py *)"
     $cargs = @("-p", "@prompts/run-prompt.md", "--output-format", "text", "--allowedTools", $allowed)
     if ((& claude --help 2>&1 | Out-String) -match "dontAsk") { $cargs += @("--permission-mode", "dontAsk") }
-    $cl = Invoke-TreeProcess "claude" "claude" $cargs 480
+    $cl = Invoke-TreeProcess "claude" "claude" $cargs 600
     Write-Host ""
     Write-Host "  --- Claude output ---" -ForegroundColor DarkGray
     Write-Host $cl.Output
-    if ($cl.TimedOut) { Info "(Claude was killed at the 8-min timeout - see notes at the end.)" }
+    if ($cl.TimedOut) { Info "(Claude was killed at the 10-min timeout - see notes at the end.)" }
 
     Step "[5/5] Routing draft + sending the approval email (send phase)"
     $post = Invoke-TreeProcess "phase.post" (PyExe) (PyArgs @("pipeline\tick.py", "--phase", "post")) 120
     Write-Host $post.Output
-    if ($post.TimedOut) { Info "(Send phase hit its 2-min timeout and was killed - Outlook may have a dialog open.)" }
+    if ($post.TimedOut) { Info "(Send phase hit its 2-min timeout and was killed - is Outlook open?)" }
 }
 finally {
     Remove-Item $Priority -Force -ErrorAction SilentlyContinue
@@ -150,28 +162,33 @@ finally {
 }
 
 Step "RESULT"
-$found = $false
 foreach ($sub in @("inbox", "sent", "rejected", "invalid")) {
     $d = Join-Path $Root "drafts\$sub"
     if (Test-Path $d) {
         $files = @(Get-ChildItem $d -Filter *.json -ErrorAction SilentlyContinue)
         Write-Host ("  drafts\{0,-9}: {1} file(s)" -f $sub, $files.Count)
-        foreach ($f in $files) {
-            Write-Host ("      - " + $f.Name)
-            if ($f.Name -match [regex]::Escape(($Email -split "@")[0])) { $found = $true }
-        }
+        foreach ($f in $files) { Write-Host ("      - " + $f.Name) }
     }
 }
-Write-Host ""
-if ($found) {
-    Write-Host "  LOOKS GOOD: a draft/pending file for $Email exists." -ForegroundColor Green
-    Write-Host "  A '.pending.json' in drafts\inbox = the approval email was sent to your inbox." -ForegroundColor Green
-    Write-Host "  Check upawar@unboundia.com for:  Approval [#XXXXXX] - ... (F5)" -ForegroundColor Green
-    Write-Host "  A file in drafts\rejected = it was gated; the reason is in the log below." -ForegroundColor Yellow
-} else {
-    Write-Host "  No draft for $Email this run. If the Claude output above says Bash was still" -ForegroundColor Yellow
-    Write-Host "  denied, tell me - the fallback is one extra flag. Otherwise it is likely" -ForegroundColor Yellow
-    Write-Host "  'priority_not_found' (aged out of Warmly's month window) or a ZoomInfo miss." -ForegroundColor Yellow
+# Any approval emails awaiting your reply - print the token so you can search your inbox.
+$apr = Join-Path $Root "state\approvals.json"
+if (Test-Path $apr) {
+    try {
+        $a = Get-Content $apr -Raw -Encoding UTF8 | ConvertFrom-Json
+        $pending = @($a.PSObject.Properties | Where-Object { $_.Value.status -eq "pending" })
+        Write-Host ""
+        if ($pending.Count -gt 0) {
+            Write-Host "  APPROVAL EMAIL(S) awaiting your reply - search your inbox for the token:" -ForegroundColor Green
+            foreach ($p in $pending) {
+                Write-Host ("    [#{0}]  recipient={1}  requested={2}" -f $p.Name, $p.Value.recipient, $p.Value.requested_at) -ForegroundColor Green
+            }
+            Write-Host "  Open it, reply GOOD to approve or NO to reject (dry_run: nothing goes to the prospect)." -ForegroundColor Green
+        } else {
+            Write-Host "  No pending approval this run." -ForegroundColor Yellow
+            Write-Host "  If Claude reported 'no_icp_in_window', the gates simply found no marketing/" -ForegroundColor Yellow
+            Write-Host "  product leader in the window - that's a correct result, not a failure." -ForegroundColor Yellow
+        }
+    } catch {}
 }
 Write-Host ""
 Write-Host "  --- last 25 log lines ---" -ForegroundColor DarkGray

@@ -28,7 +28,9 @@ def test_prompt_covers_priority_target():
     for required in ("priority target",       # the operator-forced section exists
                      "state/priority.json",   # the exact file it keys on
                      "30 pages",              # bounded search so it can't loop forever
-                     "priority_not_found"):    # honest report when the visitor aged out
+                     "priority_not_found",    # honest report when the visitor aged out
+                     "first_icp",             # -FindIcp mode: scan for the first ICP
+                     "no_icp_in_window"):      # honest report when none qualify
         assert required in t, f"prompt missing: {required}"
 
 def test_prompt_covers_persona_gate_and_no_surveillance():

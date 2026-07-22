@@ -31,20 +31,31 @@ Never assume, infer, or fabricate data: missing data stays blank, every claim ha
 
 ## Priority target (operator-forced — check FIRST, before §0)
 
-If `state/priority.json` exists (shape `{"email": "..."}`), an operator has asked you to
-push ONE specific visitor all the way through the pipeline right now:
+If `state/priority.json` exists, an operator is forcing a run. It has ONE of two shapes:
 
+**A. `{"email": "..."}`** — push that ONE visitor through end-to-end:
 1. Page `list_warm_visitors` (past_month, take 10, newest first), up to 30 pages, until a
    visitor's identified person email equals that address (case-insensitive).
-2. If found: remove that visitor's id from `state/seen.json` if present; delete any
-   `drafts/inbox/<that id>.retry.json`; then run §1–§3 for them FIRST, outside the work
-   cap. Re-run E1 (§2) FRESH for this visitor — never accept a cached person-level miss.
+2. If found: remove that id from `state/seen.json` if present; delete any
+   `drafts/inbox/<that id>.retry.json`; run §1–§3 for them FIRST, outside the work cap.
+   Re-run E1 FRESH — never accept a cached person-level miss.
 3. If not found within 30 pages: note `priority_not_found` in the §4 report.
-4. Either way, then proceed with normal detection (§0) as usual.
 
-You may be unable to delete `state/priority.json` in this sandbox — that is fine, the
-operator's runner removes it. Do not spend effort fighting the sandbox to delete it.
+**B. `{"mode": "first_icp", "since": "<ISO>"}`** — find and fully process the FIRST prospect
+that passes BOTH gates, among visitors whose `lastSeen` is at/after `since`:
+1. Page `list_warm_visitors` (past_month, take 10, newest first), up to 15 pages. `since`
+   is a real timestamp supplied by the operator — trust it, never invent your own "now".
+   Stop paging once a whole page is older than `since`.
+2. For each identified visitor in the window, in recency order: run the §1 company gate;
+   if company-ICP, run E1 then the E1a persona gate. Record EVERY visitor you evaluate in
+   `state/seen.json` with its status/reason, so the skips are visible.
+3. The FIRST visitor that passes BOTH the company gate AND the persona gate: run the full
+   enrichment (E2–E6) and write the draft (§3), then STOP the scan — you are done.
+4. If you hit the 15-page limit or the window edge with no both-gates pass: append a report
+   line noting `no_icp_in_window` and stop.
 
+After a priority run you may skip normal §0 detection this tick. You may be unable to delete
+`state/priority.json` in this sandbox — fine, the operator''s runner removes it.
 ## 0. Detect (every tick)
 
 Read `state/watermark.json` (`{"since": ISO}`), `state/seen.json`, and
