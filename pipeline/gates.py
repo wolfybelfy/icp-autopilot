@@ -56,6 +56,11 @@ def evaluate(draft, ctx):
     # 4. ICP re-check on raw data
     if not icp_check.evaluate(comp)["is_icp"]:
         fails.append("ICP re-check failed on raw classification data")
+    # 4b. Persona re-check - buyer-fit rule (marketing Manager+ / product Senior+); the
+    #     model can never override it, so an engineer/IT/sales/etc. can never be emailed.
+    pf = icp_check.evaluate_person(person)
+    if not pf["is_fit"]:
+        fails.append(f"persona: not a target buyer ({pf['reason']})")
     # 5. recipient sanity
     dom = email.split("@")[-1]
     if not EMAIL_RE.match(email):

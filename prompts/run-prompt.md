@@ -16,7 +16,9 @@ Never assume, infer, or fabricate data: missing data stays blank, every claim ha
   `state/priority.json` (operator-created — you may only delete it, per the priority
   section), `drafts/inbox/<visitor_id>.json`, `drafts/inbox/<visitor_id>.retry.json`,
   `logs/claude-runs.jsonl`. If a tool result is too large to read, re-call it with a
-  smaller `take` (10) and paginate by offset — never write a parser script to cope.
+  smaller `take` (10) and paginate by offset — never write a parser script to cope. You
+  MAY create a throwaway tempfile ONLY as `--json` input for `pipeline/icp_check.py` and
+  pass it by an absolute path outside the repo (your OS temp dir), never inside `state/`.
 - Never invent a timestamp — you have no reliable clock. Every timestamp you write must
   be copied from observed data (a visitor's `lastSeen`). `state/watermark.json` may only
   move FORWARD, and only to the newest `lastSeen` you actually observed this run; if
@@ -68,7 +70,7 @@ from `seen.json` and surface automatically on later ticks.
 `{"ts": <newest lastSeen observed, else the previous watermark>, "visitors": 0}` to
 `logs/claude-runs.jsonl`, update the watermark per the rules above, and STOP.
 
-## 1. Per new visitor
+## 1. Per new visitor — COMPANY gate first
 
 Record every evaluated visitor in `seen.json` (`{id: {status, reason, at}}`) — write the
 entry as soon as the visitor is evaluated, so a killed run never re-does work. `at` is
@@ -77,11 +79,14 @@ the visitor's `lastSeen`, not an invented time.
 - No identified person/email → status `no_person`. Stop for this visitor.
 - Build the company record `{raw_classifications, employees, employee_range,
   funding_rounds}` from Warmly account data plus (if already cached in
-  `state/enrich_cache.json`) ZoomInfo data.
+  `state/enrich_cache.json`) ZoomInfo data. If Warmly gives a company description or
+  keywords, include them as `description` / `keywords` — a company in a non-tech industry
+  still passes the company gate if it owns its OWN software / platform / AI product.
 - Run: `python pipeline/icp_check.py --json <tempfile>`. Not ICP → status `non_icp` with
-  the returned reason. The ICP decision is ALWAYS this script's output, never your judgment.
+  the returned reason. Stop for this visitor. The company decision is ALWAYS this script's
+  output, never your judgment.
 
-## 2. Enrichment playbook (ICP only, stages in order)
+## 2. Enrichment playbook (company-ICP only, stages in order)
 
 Cache every result in `state/enrich_cache.json` — 12-month TTL for hits, 7-day TTL for
 person-level misses (a miss must never mask a later real match). Cached misses are
@@ -110,6 +115,17 @@ record the gap and skip the stage.
   - Any other failure → write `drafts/inbox/<visitor_id>.retry.json`
     (`{"attempts": n+1, "visitor": ...}` — include the visitor's Warmly name, company and
     pages so retries can re-query); after 12 attempts set seen status `parked`.
+- **E1a PERSONA gate (REQUIRED — the moment E1 gives a verified person, before E2–E6):**
+  run `python pipeline/icp_check.py --person --json <tempfile>` with
+  `{"title", "job_function", "management_level"}` from the ZoomInfo person. If `is_fit`
+  is false → set the visitor's `seen.json` status to `non_icp` with the returned `reason`
+  (e.g. `excluded_role`, `marketing_below_manager`, `product_below_senior`,
+  `not_marketing_or_product`), DELETE any `.retry.json`, and STOP for this visitor — do
+  NOT run E2–E6 and do NOT draft. Only marketing owners at Manager level and above, and
+  product owners at Senior level and above, pass; engineers, IT, security, data, sales,
+  brokers/realtors, risk, customer service/support/success, finance, HR, legal and
+  too-junior ICs are all rejected here. This decision is ALWAYS the script's output,
+  never your judgment.
 - **E2 company:** ZoomInfo `enrich_companies` — industries, employeeCount,
   employeeCountByDepartment, revenue, companyFunding, recentFundingDate, foundedYear,
   businessModel, description. Failure → retry as E1.
@@ -142,28 +158,38 @@ record the gap and skip the stage.
   - Browser MCP absent / not connected / logged out → gap `linkedin_logged_out`, skip
     silently. LinkedIn data is a bonus; its absence never blocks the draft.
 - **E6 synthesis:** rank hooks (recent post > new-in-role > intent topic tied to visited
-  pages > hiring signal > news > funding). Hypothesize why they visited, tying
-  `visit.pages` to signals. Only claims with sources survive.
+  pages > hiring signal > news > funding). Hypothesize why they are a fit, tying signals to
+  their role. Only claims with sources survive.
 
 ## 2b. Retry pass (every tick — runs even when there are zero new visitors)
 
 For each `drafts/inbox/*.retry.json`, oldest first, max 3 per tick: re-run the enrichment
-playbook (§2) for that visitor starting at the stage that failed. A retry must NEVER
-trust a cached person-level miss — a possibly-poisoned miss is exactly what the retry
-exists to re-test. Re-call E1 fresh (both query forms); only positive hits may come from
-cache. On success, write the draft (§3) and DELETE the `.retry.json`. On failure, rewrite
-it with `attempts` + 1. When attempts reach 12: set the visitor's `seen.json` status to
-`parked`, delete the `.retry.json`, and count it under `parked` in the report. Retries
-share the §0 work cap and the §2 daily caps.
+playbook (§2) for that visitor starting at the stage that failed — INCLUDING the E1a
+persona gate. A retry must NEVER trust a cached person-level miss — a possibly-poisoned
+miss is exactly what the retry exists to re-test. Re-call E1 fresh (both query forms);
+only positive hits may come from cache. On success (and persona pass), write the draft
+(§3) and DELETE the `.retry.json`. On failure, rewrite it with `attempts` + 1. When
+attempts reach 12: set the visitor's `seen.json` status to `parked`, delete the
+`.retry.json`, and count it under `parked` in the report. Retries share the §0 work cap
+and the §2 daily caps.
 
 ## 3. Draft
 
 Write `drafts/inbox/<visitor_id>.json` exactly matching the schema in
-`docs/specs/2026-07-20-icp-autopilot-design.md` §5: `body_paragraphs` ONLY (no greeting,
-no sign-off, no placeholders — the template owns those). 2–4 short paragraphs, one
-concrete personalization hook in the first line, one clear low-friction ask. Every factual
-claim in the email must appear in `sources[]` with its verified URL. Include
-`enrichment{...}` with the named `gaps` list.
+`docs/specs/2026-07-20-icp-autopilot-design.md` §5. The `person` object MUST include
+`job_function` and `management_level` (from ZoomInfo E1) in addition to `title` and
+`seniority`, so the deterministic send gate can re-check the persona rule. `email` is
+`body_paragraphs` ONLY (no greeting, no sign-off, no placeholders — the template owns
+those). 2–4 short paragraphs, one concrete personalization hook in the first line, one
+clear low-friction ask. Every factual claim in the email must appear in `sources[]` with
+its verified URL. Include `enrichment{...}` with the named `gaps` list.
+
+**Never sound like surveillance.** Do NOT reference or imply that we detected their
+website visit — no "you visited our site", "saw you on our pricing page", "noticed your
+interest from our website", or any variant. It is creepy and banned. The opening hook must
+come from PUBLIC enrichment only: their role or new-in-role, a hiring signal, a recent
+LinkedIn post, company news, or funding. Write as if reaching out because of who they are
+and what their company is doing — never because of what we tracked.
 
 ## 4. Report
 

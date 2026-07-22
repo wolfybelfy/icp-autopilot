@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = {
     "visitor_id": "smoke-1", "detected_at": "",
     "person": {"full_name": "Smoke Test", "first_name": "Smoke",
-               "email": "", "title": "VP Engineering", "seniority": "VP Level Exec"},
+               "email": "", "title": "VP Marketing", "seniority": "VP Level Exec", "job_function": "Marketing"},
     "company": {"name": "SmokeCo", "domain": "", "country": "US",
                 "raw_classifications": ["Software"], "employees": 5000, "funding_rounds": []},
     "visit": {"pages": ["/pricing"], "last_seen": ""},

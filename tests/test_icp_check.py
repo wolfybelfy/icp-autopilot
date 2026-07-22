@@ -34,3 +34,22 @@ def test_cli_roundtrip(tmp_path):
     out = subprocess.run([sys.executable, "pipeline/icp_check.py", "--json", str(f)],
                          capture_output=True, text=True)
     assert out.returncode == 0 and json.loads(out.stdout)["is_icp"] is True
+
+def test_nontech_with_own_platform_qualifies():
+    # health company (not a tech industry) that owns its own AI platform -> ICP
+    r = evaluate({"raw_classifications": ["Hospitals & Health Care"], "employees": 3000,
+                  "funding_rounds": [], "description": "We build an AI diagnostics platform."})
+    assert r["is_icp"] is True
+
+def test_nontech_without_platform_still_rejected():
+    r = evaluate({"raw_classifications": ["Hospitals & Health Care"], "employees": 3000,
+                  "funding_rounds": [], "description": "A regional hospital network."})
+    assert r["is_icp"] is False and "Wrong Industry" in r["reason"]
+
+def test_person_cli_rejects_engineer(tmp_path):
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps({"title": "Principal Software Engineer",
+                             "management_level": "Non Manager"}))
+    out = subprocess.run([sys.executable, "pipeline/icp_check.py", "--person", "--json", str(f)],
+                         capture_output=True, text=True)
+    assert out.returncode == 0 and json.loads(out.stdout)["is_fit"] is False

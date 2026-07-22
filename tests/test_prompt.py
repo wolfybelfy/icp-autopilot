@@ -31,6 +31,17 @@ def test_prompt_covers_priority_target():
                      "priority_not_found"):    # honest report when the visitor aged out
         assert required in t, f"prompt missing: {required}"
 
+def test_prompt_covers_persona_gate_and_no_surveillance():
+    """The persona gate (marketing Manager+ / product Senior+) must run before drafting,
+    and drafts must never reference the website visit (creepy)."""
+    t = P.read_text(encoding="utf-8").lower()
+    for required in ("persona gate",            # E1a
+                     "--person",                # deterministic persona script call
+                     "job_function", "management_level",   # carried into the draft
+                     "never sound like surveillance",      # anti-creepy header
+                     "you visited our site"):    # the exact phrasing that's banned
+        assert required in t, f"prompt missing: {required}"
+
 def test_prompt_covers_linkedin_antiban_and_jobs_signal():
     """The hiring signal must be zero-risk Google search, and the E5 LinkedIn read must
     bake in the anti-ban operating model (real logged-in Chrome, read-only, skip-on-block,

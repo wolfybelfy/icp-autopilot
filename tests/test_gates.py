@@ -4,7 +4,8 @@ def good_draft():
     return {
         "visitor_id": "v1", "detected_at": "2026-07-20T09:00:00",
         "person": {"full_name": "Jane Roe", "first_name": "Jane", "email": "jane@acme.com",
-                   "title": "VP Engineering", "seniority": "VP Level Exec"},
+                   "title": "VP Marketing", "seniority": "VP Level Exec",
+                   "job_function": "Marketing", "management_level": "VP Level Exec"},
         "company": {"name": "Acme", "domain": "acme.com", "country": "US",
                     "raw_classifications": ["Software"], "employees": 5000,
                     "funding_rounds": []},
@@ -45,6 +46,12 @@ def test_schema_missing_field(tmp_path):
 def test_icp_recheck_blocks_non_icp(tmp_path):
     d = good_draft(); d["company"]["employees"] = 50
     assert any("ICP" in r for r in gates.evaluate(d, ctx(tmp_path)))
+
+def test_persona_recheck_blocks_wrong_role(tmp_path):
+    d = good_draft()
+    d["person"].update(title="Principal Software Engineer", job_function="Engineering",
+                       management_level="Non Manager")
+    assert any("persona" in r for r in gates.evaluate(d, ctx(tmp_path)))
 
 def test_freemail_blocks(tmp_path):
     d = good_draft(); d["person"]["email"] = "jane@gmail.com"
