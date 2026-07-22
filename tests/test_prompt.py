@@ -58,6 +58,15 @@ def test_prompt_covers_linkedin_antiban_and_jobs_signal():
                      "linkedin_blocked"):           # graceful skip gap
         assert required in t, f"prompt missing: {required}"
 
+def test_prompt_covers_sources_discipline():
+    """A draft citing a LinkedIn/unverified URL is rejected by the send gate's HTTP-200
+    link check (the Janmarie Wright case, 2026-07-22). sources[] must be 200-only."""
+    t = P.read_text(encoding="utf-8").lower()
+    for required in ("sources discipline",
+                     "http 200 in this run",       # only self-fetched-200 URLs may be cited
+                     "never put a linkedin url"):    # LinkedIn never 200s -> never a source
+        assert required in t, f"prompt missing: {required}"
+
 def test_prompt_covers_enrichment_verdict_rules():
     """2026-07-21: k.morrison@f5.com was a ZoomInfo FULL_MATCH (Kyle Morrison, Principal
     SWE at F5, score 91) but E1 misread it as a miss, cached the miss for 7 days, and
