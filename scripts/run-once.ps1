@@ -44,6 +44,31 @@ $script:UsePy = -not ((python --version 2>&1) -match "^Python 3")
 function PyExe  { if ($script:UsePy) { "py" }        else { "python" } }
 function PyArgs([string[]]$a) { if ($script:UsePy) { @("-3") + $a } else { $a } }
 
+# Resolve the claude CLI explicitly. A `powershell -NoProfile -File` child does NOT inherit
+# a PATH tweak you made interactively, so bare `claude` can be "not recognized" here even
+# when it works in your normal window. Find the binary and prepend its folder to PATH so the
+# cmd.exe child in Invoke-TreeProcess finds it too.
+function Resolve-Claude {
+    $g = Get-Command claude -ErrorAction SilentlyContinue
+    if ($g) { return $g.Source }
+    $cands = @(
+        (Join-Path $env:APPDATA 'npm\claude.cmd'),
+        (Join-Path $env:APPDATA 'npm\claude.ps1'),
+        (Join-Path $env:USERPROFILE '.local\bin\claude.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\claude\claude.exe')
+    )
+    foreach ($cand in $cands) { if ($cand -and (Test-Path $cand)) { return $cand } }
+    try { $pref = (& npm config get prefix 2>$null); if ($pref) { $q = Join-Path $pref 'claude.cmd'; if (Test-Path $q) { return $q } } } catch {}
+    return $null
+}
+$ClaudeExe = Resolve-Claude
+if (-not $ClaudeExe) {
+    Write-Host "FATAL: could not find the 'claude' CLI on this machine." -ForegroundColor Red
+    Write-Host "  In a normal window run:  where.exe claude   (or reinstall: npm install -g @anthropic-ai/claude-code)" -ForegroundColor Red
+    exit 3
+}
+$env:Path = (Split-Path -Parent $ClaudeExe) + ';' + $env:Path
+
 # Run a child under cmd.exe with a hard timeout, merged stdout+stderr to a temp file, and a
 # FULL process-tree kill on timeout (taskkill /T /F). Returns { TimedOut, ExitCode, Output }.
 function Invoke-TreeProcess([string]$Label, [string]$Exe, [string[]]$Arguments, [int]$TimeoutSec) {
@@ -143,8 +168,8 @@ else:
     Info "Please wait - no output appears until Claude finishes."
     $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,mcp__linkedin-browser__browser_navigate,mcp__linkedin-browser__browser_snapshot,mcp__linkedin-browser__browser_wait_for,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python *),Bash(py *)"
     $cargs = @("-p", "@prompts/run-prompt.md", "--output-format", "text", "--allowedTools", $allowed)
-    if ((& claude --help 2>&1 | Out-String) -match "dontAsk") { $cargs += @("--permission-mode", "dontAsk") }
-    $cl = Invoke-TreeProcess "claude" "claude" $cargs 600
+    if ((& $ClaudeExe --help 2>&1 | Out-String) -match "dontAsk") { $cargs += @("--permission-mode", "dontAsk") }
+    $cl = Invoke-TreeProcess "claude" $ClaudeExe $cargs 600
     Write-Host ""
     Write-Host "  --- Claude output ---" -ForegroundColor DarkGray
     Write-Host $cl.Output
