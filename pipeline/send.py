@@ -93,7 +93,11 @@ class Sender:
         psubj, ptext, _ = self.render_email(draft)
         ev = ["EVIDENCE:", f"Pages visited: {', '.join(draft['visit']['pages'])}",
               f"ZoomInfo match: {draft['enrich'].get('match_level', '?')}"]
-        ev += [f"- {s['claim']} -- {s['url']}" for s in draft["sources"]]
+        for s in draft["sources"]:
+            url = s.get("url", "")
+            ok = bool(url) and self.verify_url(url)
+            flag = "" if ok else "  [UNVERIFIED - link did not load; check before approving]"
+            ev.append(f"- {s.get('claim', '')} -- {url}{flag}")
         gaps = draft.get("enrichment", {}).get("gaps", [])
         if gaps:
             ev.append("Gaps: " + ", ".join(gaps))

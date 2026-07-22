@@ -64,7 +64,8 @@ def test_prompt_covers_sources_discipline():
     t = P.read_text(encoding="utf-8").lower()
     for required in ("sources discipline",
                      "http 200 in this run",       # only self-fetched-200 URLs may be cited
-                     "never put a linkedin url"):    # LinkedIn never 200s -> never a source
+                     "never cite a linkedin url",  # LinkedIn never 200s -> never a source
+                     "email body"):                 # hard link check is prospect-facing only
         assert required in t, f"prompt missing: {required}"
 
 def test_prompt_covers_enrichment_verdict_rules():

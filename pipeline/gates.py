@@ -86,10 +86,14 @@ def evaluate(draft, ctx):
     # 8. geo
     if comp["country"].upper() not in [g.upper() for g in ctx.cfg["geo_allowlist"]]:
         fails.append(f"geo: {comp['country']} not in allowlist")
-    # 9. links re-verified now
-    for s in draft["sources"]:
-        if s.get("url") and not ctx.verify_url(s["url"]):
-            fails.append(f"link: not HTTP 200 now: {s['url']}")
+    # 9. links IN THE EMAIL BODY re-verified now - a prospect must never receive a dead
+    #    link. Source/evidence links are the operator's notes: they are verified and FLAGGED
+    #    in the approval email (send.py), never a hard send-blocker, so a dead evidence link
+    #    can't bin an otherwise-good email (that was the recurring false rejection).
+    body_text = " ".join(draft["email"].get("body_paragraphs") or [])
+    for url in re.findall(r"https?://[^\s)>\]]+", body_text):
+        if not ctx.verify_url(url):
+            fails.append(f"link: dead link in email body: {url}")
     # 10. sender config filled
     snd = ctx.cfg["sender"]
     if any("REPLACE_ME" in str(v) for v in snd.values()):

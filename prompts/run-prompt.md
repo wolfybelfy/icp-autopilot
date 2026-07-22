@@ -196,16 +196,16 @@ clear low-friction ask. Include `enrichment{...}` with the named `gaps` list.
 
 **Sources discipline (this is what gets drafts sent, not binned).** `sources[]` may contain
 ONLY URLs you personally fetched with WebFetch and saw return **HTTP 200 in THIS run**.
-Before adding ANY url to `sources[]`, WebFetch it and confirm 200; if it is not 200 (404,
-redirect, paywall, login wall, bot-block), do NOT list it. The deterministic send gate
-re-verifies every `sources[]` URL and REJECTS the whole draft on a single non-200 — a draft
-that cites a LinkedIn URL or an unverified careers page gets binned and no email is sent.
-**NEVER put a LinkedIn URL (profile / recent-activity / company) in `sources[]`** — they
-return a login wall and never 200. A post you read via E5 is a personalization hook: use its
+For every fact you want to cite, do a real WebSearch, open a candidate page with WebFetch,
+and cite it ONLY if it returns HTTP 200 this run. NEVER invent or hand-build a URL, and
+**NEVER cite a LinkedIn URL** (profile / recent-activity / company) — LinkedIn shows a login
+wall and never returns 200. A post you read via E5 is a personalization hook: use its
 substance in the email and record it under `enrichment.linkedin`, but its URL is NOT a
-citable source. Every hard factual claim must map to a 200-verified `sources[]` URL; if a
-claim has no fetchable 200 source, soften it to a non-factual personalization or drop it —
-never cite a link you did not verify this run.
+citable source. The send gate hard-blocks only links that appear in the EMAIL BODY (a
+prospect must never get a dead link — normally the body has none); your `sources[]` are the
+operator's evidence, and the approval email verifies each and flags any that don't load. So
+a dead evidence link won't bin the draft, but it makes the outreach look sloppy — cite only
+live pages you actually fetched, and drop or soften any claim you can't back with one.
 
 **Never sound like surveillance.** Do NOT reference or imply that we detected their
 website visit — no "you visited our site", "saw you on our pricing page", "noticed your

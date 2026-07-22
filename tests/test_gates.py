@@ -81,8 +81,14 @@ def test_geo_blocks_non_us(tmp_path):
     d = good_draft(); d["company"]["country"] = "IN"
     assert any("geo" in r for r in gates.evaluate(d, ctx(tmp_path)))
 
-def test_dead_link_blocks(tmp_path):
-    assert gates.evaluate(good_draft(), ctx(tmp_path, verify_url=lambda u: False))
+def test_dead_link_in_body_blocks(tmp_path):
+    # a prospect must never receive a dead link -> body links are hard-verified
+    d = good_draft(); d["email"]["body_paragraphs"] = ["Check https://acme.com/dead", "hi"]
+    assert any("email body" in r for r in gates.evaluate(d, ctx(tmp_path, verify_url=lambda u: False)))
+
+def test_dead_source_link_does_not_block(tmp_path):
+    # evidence/source links are verified + flagged at approval time, never a send-blocker
+    assert gates.evaluate(good_draft(), ctx(tmp_path, verify_url=lambda u: False)) == []
 
 def test_replace_me_sender_blocks(tmp_path):
     c = ctx(tmp_path); c.cfg["sender"]["name"] = "REPLACE_ME"

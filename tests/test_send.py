@@ -62,6 +62,14 @@ def test_dry_run_blocks_send_but_allows_approval_request(tmp_path):
     s2 = Sender(root2, cfg2, m2, verify_url=lambda u: True)
     assert s2.route_draft(write_draft(root2)).startswith("approval_requested:")
 
+def test_approval_flags_unverified_source(tmp_path):
+    # a dead evidence link no longer bins the draft; it is flagged for the operator instead
+    root, cfg = make_root(tmp_path)
+    m = FakeMailer()
+    s = Sender(root, cfg, m, verify_url=lambda u: False)
+    assert s.route_draft(write_draft(root)).startswith("approval_requested:")
+    assert "UNVERIFIED" in m.sent[0]["body"]
+
 def test_invalid_draft_moved(tmp_path):
     root, cfg = make_root(tmp_path)
     p = root / "drafts" / "inbox" / "bad.json"
