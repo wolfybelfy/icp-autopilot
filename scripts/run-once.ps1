@@ -120,14 +120,14 @@ Step "ICP Autopilot - single foreground run for: $what"
 Info "Bypasses Task Scheduler. Kills leftovers, runs once. Make sure OUTLOOK IS OPEN."
 Info "Up to ~12 minutes. Leave this window open until you see 'DONE'."
 
-Step "[1/5] Clearing stuck / zombie tick processes"
+Step "[1/6] Clearing stuck / zombie tick processes"
 Kill-Zombies
 Remove-Item $Lock -Force -ErrorAction SilentlyContinue
 New-Item -ItemType File -Force $Lock | Out-Null   # hold the lock so scheduled ticks skip
 Say "run-once started; holding lock"
 
 try {
-    Step "[2/5] Setting the target"
+    Step "[2/6] Setting the target"
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     if ($FindIcp) {
         # UTC cutoff computed HERE (reliable clock) and handed to the model, so it never has
@@ -140,7 +140,7 @@ try {
         Info "wrote state\priority.json  (email=$Email)"
     }
 
-    Step "[3/5] Healing workspace trust (so Warmly + ZoomInfo MCP servers load)"
+    Step "[3/6] Healing workspace trust (so Warmly + ZoomInfo MCP servers load)"
     $trustCode = @"
 import json, pathlib, sys
 p = pathlib.Path.home() / '.claude.json'
@@ -164,7 +164,13 @@ else:
     $healed = if ($script:UsePy) { & py -3 -c $trustCode 2>&1 } else { & python -c $trustCode 2>&1 }
     Info ("$healed")
 
-    Step "[4/5] Detect + gate (company + persona) + ZoomInfo + enrich + draft (Claude, up to 10 min)"
+    Step "[4/6] Reading your GOOD / NO email replies (this is what acts on approvals)"
+    Info "Reads your inbox, applies GOOD/NO to pending approvals, expires >48h ones. OUTLOOK MUST BE OPEN."
+    $pre = Invoke-TreeProcess "phase.pre" (PyExe) (PyArgs @("pipeline\tick.py", "--phase", "pre")) 120
+    Write-Host $pre.Output
+    if ($pre.TimedOut) { Info "(Reply-reading phase hit its 2-min timeout and was killed - is Outlook open?)" }
+
+    Step "[5/6] Detect + gate (company + persona) + ZoomInfo + enrich + draft (Claude, up to 10 min)"
     Info "Please wait - no output appears until Claude finishes."
     $allowed = "mcp__warmly,mcp__claude_ai_ZoomInfo,WebSearch,WebFetch,Read,Glob,Grep,Write,Edit,Bash(python *),Bash(py *),PowerShell"
     $cargs = @("-p", "@prompts/run-prompt.md", "--output-format", "text", "--allowedTools", $allowed)
@@ -175,7 +181,7 @@ else:
     Write-Host $cl.Output
     if ($cl.TimedOut) { Info "(Claude was killed at the 10-min timeout - see notes at the end.)" }
 
-    Step "[5/5] Routing draft + sending the approval email (send phase)"
+    Step "[6/6] Routing draft + sending the approval email (send phase)"
     $post = Invoke-TreeProcess "phase.post" (PyExe) (PyArgs @("pipeline\tick.py", "--phase", "post")) 120
     Write-Host $post.Output
     if ($post.TimedOut) { Info "(Send phase hit its 2-min timeout and was killed - is Outlook open?)" }
