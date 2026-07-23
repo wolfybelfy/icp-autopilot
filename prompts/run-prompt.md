@@ -41,18 +41,24 @@ If `state/priority.json` exists, an operator is forcing a run. It has ONE of two
    Re-run E1 FRESH — never accept a cached person-level miss.
 3. If not found within 30 pages: note `priority_not_found` in the §4 report.
 
-**B. `{"mode": "first_icp", "since": "<ISO>"}`** — find and fully process the FIRST prospect
-that passes BOTH gates, among visitors whose `lastSeen` is at/after `since`:
+**B. `{"mode": "first_icp", "since": "<ISO>"}`** — find and fully process the first FRESH
+prospect that passes BOTH gates, among visitors whose `lastSeen` is at/after `since`. A
+visitor is **already handled** (skip them) if their email appears in `state/approvals.json`
+OR a `drafts/inbox/<id>.json` or `drafts/inbox/<id>.pending.json` already exists for them —
+an approval already went out or a draft is already queued, and a pending or unanswered
+approval must NEVER stop you from finding the next prospect.
 1. Page `list_warm_visitors` (past_month, take 10, newest first), up to 15 pages. `since`
    is a real timestamp supplied by the operator — trust it, never invent your own "now".
    Stop paging once a whole page is older than `since`.
-2. For each identified visitor in the window, in recency order: run the §1 company gate;
-   if company-ICP, run E1 then the E1a persona gate. Record EVERY visitor you evaluate in
-   `state/seen.json` with its status/reason, so the skips are visible.
-3. The FIRST visitor that passes BOTH the company gate AND the persona gate: run the full
-   enrichment (E2–E6) and write the draft (§3), then STOP the scan — you are done.
-4. If you hit the 15-page limit or the window edge with no both-gates pass: append a report
-   line noting `no_icp_in_window` and stop.
+2. For each identified visitor in the window, in recency order: skip anyone already handled
+   (above) WITHOUT re-gating. For the rest, run the §1 company gate; if company-ICP, run E1
+   then the E1a persona gate. Record EVERY visitor you evaluate in `state/seen.json` with
+   its status/reason, so the skips are visible.
+3. The FIRST fresh visitor that passes BOTH the company gate AND the persona gate: run the
+   full enrichment (E2–E6), write the draft (§3), then STOP the scan — you are done.
+4. If the window ends with no fresh both-gates pass, append a report line and stop with the
+   exact reason: `no_icp_in_window` if nobody passed both gates, or
+   `all_icps_already_contacted` if every both-gates pass was skipped as already handled.
 
 After a priority run you may skip normal §0 detection this tick. You may be unable to delete
 `state/priority.json` in this sandbox — fine, the operator''s runner removes it.
